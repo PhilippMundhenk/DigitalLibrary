@@ -1,0 +1,35 @@
+name: CI - unit tests and e2e
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  unit-and-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Start server and run Cypress e2e
+        env:
+          NODE_ENV: test
+        run: |
+          npm run ci:e2e
+        # The start-server-and-test helper will start the app, wait for port 3000 and run cypress tests
+
+  # optional: separate job to build and publish docker image (kept in docker-publish.yml)

@@ -1,0 +1,7 @@
+node_modules
+data/books/*.json
+data/config.json
+.env
+.DS_Store
+cypress/screenshots
+cypress/videos

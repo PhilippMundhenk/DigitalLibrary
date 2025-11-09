@@ -1,0 +1,84 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Digital Library</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Digital Library</h1>
+      <div class="controls">
+        <input id="search" placeholder="Search all fields..." />
+        <select id="view">
+          <option value="gallery">Gallery</option>
+          <option value="table">Table</option>
+        </select>
+        <button id="addBtn">Add Book</button>
+        <button id="scanBtn">Scan ISBN (Camera)</button>
+        <input id="importFile" type="file" />
+        <button id="previewImportBtn">Preview Import</button>
+      </div>
+    </header>
+
+    <main>
+      <div id="gallery" class="view"></div>
+      <div id="table" class="view hidden"></div>
+    </main>
+
+    <!-- Modal for add/edit -->
+    <div id="modal" class="modal hidden">
+      <div class="modal-content">
+        <h3 id="modal-title">Add / Edit Book</h3>
+        <label>ISBN <input id="isbn" /></label>
+        <label>Title <input id="title" /></label>
+        <label>Authors <input id="authors" placeholder="comma-separated" /></label>
+        <label>Location <input id="location" /></label>
+        <label>Cover URL <input id="cover" /></label>
+        <label>Notes <textarea id="notes"></textarea></label>
+        <div id="modal-error" style="color: #b22; display:none; margin-top:6px;"></div>
+        <div class="modal-actions">
+          <button id="fetchMeta">Fetch Metadata (ISBN)</button>
+          <button id="saveBtn">Save</button>
+          <button id="cancelBtn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import preview modal -->
+    <div id="importPreview" class="modal hidden">
+      <div class="modal-content">
+        <h3>Import Preview</h3>
+        <div id="previewArea" style="max-height: 50vh; overflow:auto;"></div>
+        <div id="importErrors" style="color:#b22;"></div>
+        <div class="modal-actions">
+          <button id="confirmImportBtn">Confirm Import</button>
+          <button id="cancelImportBtn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scanner -->
+    <div id="scanner" class="modal hidden">
+      <div class="modal-content">
+        <h3>Scan barcode</h3>
+        <div id="scanner-area"></div>
+        <div class="modal-actions">
+          <button id="closeScanner">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <small>All data stored as JSON files on server.</small>
+    </footer>
+  </div>
+
+  <!-- Libraries -->
+  <script src="https://unpkg.com/quagga/dist/quagga.min.js"></script>
+  <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
