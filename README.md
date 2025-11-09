@@ -1,4 +1,3 @@
-```markdown
 # Digital Library
 
 A simple web service to manage a digital book library. Book records are stored as individual JSON files on disk (no database).
@@ -59,4 +58,3 @@ See .github/workflows/docker-publish.yml for an example workflow that builds and
 Notes
 - No authentication included by design.
 - The app uses OpenLibrary first and falls back to Google Books when fetching metadata.
-```
