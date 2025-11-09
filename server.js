@@ -8,7 +8,14 @@ const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 const storage = require('./lib/storage');
 const metadata = require('./lib/metadata');
-const csvParse = require('csv-parse/lib/sync');
+let csvParse;
+try {
+  // older and some published versions expose the sync parser at this path
+  csvParse = require('csv-parse/lib/sync');
+} catch (err) {
+  // newer versions expose it as 'csv-parse/sync' — fall back to that
+  csvParse = require('csv-parse/sync');
+}
 const fs = require('fs');
 
 const app = express();
@@ -147,10 +154,18 @@ app.get('*', (req, res) => {
 });
 
 async function start() {
-  await storage.ensureDataDirs();
+  // Start creating data dirs but don't await in order to avoid blocking tests on filesystem
+  // operations (some environments have slow mounts). Storage operations will still call
+  // ensureDataDirs() as needed when reading/writing.
+  storage.ensureDataDirs().catch(err => console.error('ensureDataDirs failed', err));
+
   const server = app.listen(PORT, () => {
-    console.log(`Digital Library listening on http://0.0.0.0:${PORT}`);
+    // Avoid logging during Jest runs (prevents "Cannot log after tests are done")
+    if (!process.env.JEST_WORKER_ID) {
+      console.log(`Digital Library listening on http://0.0.0.0:${PORT}`);
+    }
   });
+
   return server;
 }
 
