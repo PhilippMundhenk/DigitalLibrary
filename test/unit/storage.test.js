@@ -96,4 +96,55 @@ describe('storage module', () => {
     expect(data.settings).toBeDefined();
     expect(data.books.find(b => b.id === 'persist-1')).toBeTruthy();
   });
+
+  test('settings include customFields', async () => {
+    await storage.updateSettings({
+      customFields: [{ name: 'genre', label: 'Genre' }]
+    });
+    const s = await storage.getSettings();
+    expect(s.customFields).toEqual([{ name: 'genre', label: 'Genre' }]);
+  });
+
+  test('saveBook updates existing book', async () => {
+    await storage.saveBook({ id: 'update-1', title: 'Before' });
+    await storage.saveBook({ id: 'update-1', title: 'After' });
+    const book = await storage.readBook('update-1');
+    expect(book.title).toBe('After');
+    const list = await storage.listBooks();
+    const matches = list.filter(b => b.id === 'update-1');
+    expect(matches.length).toBe(1);
+  });
+
+  test('listBooks sorts by created_at descending', async () => {
+    await storage.clearAll();
+    await storage.saveBook({ id: 'sort-1', title: 'Old', created_at: '2020-01-01T00:00:00Z' });
+    await storage.saveBook({ id: 'sort-2', title: 'New', created_at: '2025-01-01T00:00:00Z' });
+    const list = await storage.listBooks();
+    expect(list[0].id).toBe('sort-2');
+    expect(list[1].id).toBe('sort-1');
+  });
+
+  test('readBook returns null for missing id', async () => {
+    const book = await storage.readBook('nonexistent-id-xyz');
+    expect(book).toBeNull();
+  });
+
+  test('deleteBook returns false for missing id', async () => {
+    const result = await storage.deleteBook('nonexistent-id-xyz');
+    expect(result).toBe(false);
+  });
+
+  test('deleteBooks returns 0 for empty ids', async () => {
+    const result = await storage.deleteBooks([]);
+    expect(result).toBe(0);
+  });
+
+  test('resetCache forces reload from disk', async () => {
+    await storage.saveBook({ id: 'cache-1', title: 'Cached' });
+    storage.resetCache();
+    // After reset, data should reload from file
+    const book = await storage.readBook('cache-1');
+    expect(book).toBeTruthy();
+    expect(book.title).toBe('Cached');
+  });
 });

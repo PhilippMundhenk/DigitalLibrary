@@ -244,6 +244,145 @@ describe('API', () => {
     await request(server).post('/api/upload-cover').expect(400);
   });
 
+  // --- Cover upload validation ---
+  test('upload rejects non-image file', async () => {
+    const txtBuf = Buffer.from('not an image');
+    const res = await request(server)
+      .post('/api/upload-cover')
+      .attach('cover', txtBuf, { filename: 'evil.txt', contentType: 'text/plain' });
+    expect(res.status).toBe(400);
+  });
+
+  test('cover data URI has clean MIME type', async () => {
+    const pngBuf = Buffer.from([0x89, 0x50, 0x4E, 0x47, ...Buffer.alloc(100, 0x42)]);
+    const res = await request(server)
+      .post('/api/upload-cover')
+      .attach('cover', pngBuf, { filename: 'cover.png', contentType: 'image/png' })
+      .expect(200);
+    expect(res.body.cover).toMatch(/^data:image\/png;base64,/);
+    expect(res.body.cover).not.toContain('charset');
+  });
+
+  // --- Input sanitization ---
+  test('strips __proto__ from book payload', async () => {
+    const res = await request(server).post('/api/books')
+      .send({ title: 'Safe Book', __proto__: { isAdmin: true } }).expect(201);
+    expect(res.body.title).toBe('Safe Book');
+    expect(res.body.isAdmin).toBeUndefined();
+  });
+
+  test('strips unknown fields from book payload', async () => {
+    const res = await request(server).post('/api/books')
+      .send({ title: 'Clean Book', evil: 'payload', hack: true }).expect(201);
+    expect(res.body.title).toBe('Clean Book');
+    expect(res.body.evil).toBeUndefined();
+    expect(res.body.hack).toBeUndefined();
+  });
+
+  test('truncates overly long title', async () => {
+    const longTitle = 'A'.repeat(10000);
+    const res = await request(server).post('/api/books')
+      .send({ title: longTitle }).expect(201);
+    expect(res.body.title.length).toBeLessThanOrEqual(5000);
+  });
+
+  test('validates authors is array of strings', async () => {
+    const res = await request(server).post('/api/books')
+      .send({ title: 'Auth Test', authors: ['Good Author', 123, null] }).expect(201);
+    expect(res.body.authors).toEqual(['Good Author']);
+  });
+
+  test('validates pages as positive integer', async () => {
+    const res = await request(server).post('/api/books')
+      .send({ title: 'Pages Test', pages: 350 }).expect(201);
+    expect(res.body.pages).toBe(350);
+  });
+
+  test('rejects negative pages', async () => {
+    const res = await request(server).post('/api/books')
+      .send({ title: 'Bad Pages', pages: -5 }).expect(201);
+    expect(res.body.pages).toBeUndefined();
+  });
+
+  // --- Settings sanitization ---
+  test('sanitizes settings custom fields', async () => {
+    const res = await request(server).put('/api/settings')
+      .send({
+        customFields: [
+          { name: 'Genre!@#$', label: 'Genre' },
+          { name: 'valid_field', label: 'Valid' }
+        ]
+      }).expect(200);
+    expect(res.body.customFields[0].name).toBe('genre');
+    expect(res.body.customFields[1].name).toBe('valid_field');
+  });
+
+  test('rejects non-boolean autoFetchMetadata', async () => {
+    const before = await request(server).get('/api/settings').expect(200);
+    await request(server).put('/api/settings')
+      .send({ autoFetchMetadata: 'yes' }).expect(200);
+    const after = await request(server).get('/api/settings').expect(200);
+    // Should not have changed to string
+    expect(typeof after.body.autoFetchMetadata).toBe('boolean');
+  });
+
+  // --- Custom fields in books ---
+  test('book can store custom field values', async () => {
+    await request(server).put('/api/settings')
+      .send({ customFields: [{ name: 'genre', label: 'Genre' }] }).expect(200);
+    const res = await request(server).post('/api/books')
+      .send({ title: 'Custom Field Book', genre: 'Sci-Fi' }).expect(201);
+    expect(res.body.genre).toBe('Sci-Fi');
+  });
+
+  // --- Search edge cases ---
+  test('search is case-insensitive', async () => {
+    await request(server).post('/api/books')
+      .send({ title: 'UPPERCASE TITLE 99' }).expect(201);
+    const res = await request(server).get('/api/books?q=uppercase+title+99').expect(200);
+    expect(res.body.length).toBe(1);
+  });
+
+  test('search by notes field', async () => {
+    await request(server).post('/api/books')
+      .send({ title: 'Notes Test', notes: 'UniqueNoteValue42' }).expect(201);
+    const res = await request(server).get('/api/books?q=UniqueNoteValue42').expect(200);
+    expect(res.body.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // --- Metadata endpoint ---
+  test('metadata endpoint validates ISBN format', async () => {
+    const res = await request(server).get('/api/metadata/not-an-isbn').expect(200);
+    expect(res.body).toEqual({});
+  });
+
+  // --- Import edge cases ---
+  test('import rejects non-array JSON', async () => {
+    const res = await request(server)
+      .post('/api/import')
+      .attach('file', Buffer.from('{"title":"not array"}'), 'bad.json');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('array');
+  });
+
+  test('import sanitizes book entries', async () => {
+    const books = [{ title: 'Import Safe', evil: 'payload', __proto__: { hack: true } }];
+    const res = await request(server)
+      .post('/api/import')
+      .attach('file', Buffer.from(JSON.stringify(books)), 'safe.json')
+      .expect(200);
+    expect(res.body.imported).toBe(1);
+    expect(res.body.books[0].evil).toBeUndefined();
+  });
+
+  // --- Security headers ---
+  test('API responses include security headers', async () => {
+    const res = await request(server).get('/api/settings');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+    expect(res.headers['cache-control']).toBe('no-store');
+  });
+
   // --- Clear library ---
   test('clear library', async () => {
     await request(server).post('/api/books').send({ title: 'ClearTest' }).expect(201);

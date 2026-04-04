@@ -565,20 +565,36 @@
     importFile.value = '';
   });
 
+  // Fetch with retry on rate-limit (429)
+  function fetchMetaWithRetry(isbn, retries) {
+    retries = retries || 0;
+    return api.fetchMeta(isbn).catch(function (err) {
+      if (retries < 3 && err.message && err.message.indexOf('429') !== -1) {
+        var delay = (retries + 1) * 2000;
+        return new Promise(function (resolve) { setTimeout(resolve, delay); })
+          .then(function () { return fetchMetaWithRetry(isbn, retries + 1); });
+      }
+      throw err;
+    });
+  }
+
   fetchAllMetaBtn.addEventListener('click', async function () {
     var isbnEntries = importPreviewEntries.filter(function (p) { return p.item.isbn && !p.item.title; });
     if (!isbnEntries.length) { fetchAllStatus.textContent = 'No ISBNs to fetch'; return; }
     fetchAllMetaBtn.disabled = true;
-    var done = 0;
+    var succeeded = 0;
+    var failed = 0;
+    var processed = 0;
     var total = isbnEntries.length;
     fetchAllStatus.textContent = 'Fetching 0/' + total + '...';
 
     for (var i = 0; i < isbnEntries.length; i += 3) {
+      if (importCancelled) break;
       var batch = isbnEntries.slice(i, i + 3);
       batch.forEach(function (p) { p.fetching = true; });
       renderImportPreview();
       var results = await Promise.allSettled(batch.map(function (p) {
-        return api.fetchMeta(p.item.isbn);
+        return fetchMetaWithRetry(p.item.isbn);
       }));
       for (var j = 0; j < batch.length; j++) {
         var p = batch[j];
@@ -589,16 +605,21 @@
             p.item.title = m.title;
             if (m.authors && m.authors.length) p.item.authors = m.authors;
             if (m.cover) p.item.cover = m.cover;
+            succeeded++;
           }
+        } else {
+          failed++;
         }
         p.errors = validateBook(p.item);
-        done++;
+        processed++;
       }
-      fetchAllStatus.textContent = 'Fetching ' + done + '/' + total + '...';
+      fetchAllStatus.textContent = 'Fetching ' + processed + '/' + total + '...';
       renderImportPreview();
     }
     fetchAllMetaBtn.disabled = false;
-    fetchAllStatus.textContent = 'Done! Fetched ' + done + ' entries.';
+    var msg = 'Done! ' + succeeded + '/' + total + ' fetched.';
+    if (failed > 0) msg += ' ' + failed + ' failed.';
+    fetchAllStatus.textContent = msg;
   });
 
   cancelImportBtn.addEventListener('click', function () {
