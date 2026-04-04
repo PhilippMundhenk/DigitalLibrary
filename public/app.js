@@ -1,53 +1,319 @@
-// Frontend: improved import preview + validation + UX tweaks
 (async function () {
-  const api = {
-    list: (q, field) => fetch(`/api/books${q ? '?q=' + encodeURIComponent(q) + (field ? '&field=' + field : '') : ''}`).then(r=>r.json()),
-    get: id => fetch(`/api/books/${id}`).then(r=>r.json()),
-    create: b => fetch('/api/books', { method:'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(b) }).then(r=>r.json()),
-    update: (id,b) => fetch(`/api/books/${id}`, { method:'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(b) }).then(r=>r.json()),
-    delete: id => fetch(`/api/books/${id}`, { method:'DELETE' }).then(r=>r.json()),
-    importFile: file => {
-      const fd = new FormData(); fd.append('file', file);
-      return fetch('/api/import', { method:'POST', body: fd }).then(r=>r.json());
+  var PLACEHOLDER = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='240'%3E%3Crect width='180' height='240' fill='%23e2e8f0'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%2394a3b8' font-family='sans-serif' font-size='14'%3ENo Cover%3C/text%3E%3C/svg%3E";
+
+  function coverSrc(url) {
+    if (!url) return PLACEHOLDER;
+    if (url.startsWith('data:')) return url;
+    return url.replace(/^http:\/\//, 'https://');
+  }
+  function onImgError(e) { e.target.src = PLACEHOLDER; }
+
+  // --- ISBN checksum validation ---
+  function validateISBN13(code) {
+    if (!code || code.length !== 13 || !/^\d{13}$/.test(code)) return false;
+    var sum = 0;
+    for (var i = 0; i < 12; i++) sum += parseInt(code[i], 10) * (i % 2 === 0 ? 1 : 3);
+    return (10 - (sum % 10)) % 10 === parseInt(code[12], 10);
+  }
+  function validateISBN10(code) {
+    if (!code || code.length !== 10 || !/^[\dXx]{10}$/.test(code)) return false;
+    var sum = 0;
+    for (var i = 0; i < 9; i++) sum += parseInt(code[i], 10) * (i + 1);
+    var check = sum % 11;
+    var last = code[9].toUpperCase() === 'X' ? 10 : parseInt(code[9], 10);
+    return check === last;
+  }
+  function validateISBNChecksum(raw) {
+    var clean = raw.replace(/[\s\-]/g, '');
+    if (clean.length === 13) return validateISBN13(clean);
+    if (clean.length === 10) return validateISBN10(clean);
+    return false;
+  }
+  function isCompleteISBN(raw) {
+    var clean = raw.replace(/[\s\-]/g, '');
+    return clean.length === 10 || clean.length === 13;
+  }
+  function fixISBN10CheckDigit(raw) {
+    var digits = raw.replace(/[\s\-]/g, '');
+    if (/^\d{9}$/.test(digits)) {
+      var sum = 0;
+      for (var i = 0; i < 9; i++) sum += parseInt(digits[i], 10) * (i + 1);
+      var check = sum % 11;
+      return digits + (check === 10 ? 'X' : String(check));
+    }
+    if (/^\d{9}[\dXx]$/.test(digits) && !validateISBN10(digits)) {
+      return fixISBN10CheckDigit(digits.slice(0, 9));
+    }
+    return null;
+  }
+
+  // --- Robust API response handler ---
+  function apiResponse(r) {
+    return r.text().then(function (text) {
+      var data;
+      try { data = JSON.parse(text); } catch (e) {
+        throw new Error('Server returned invalid response (HTTP ' + r.status + ')');
+      }
+      if (!r.ok) throw new Error(data.error || ('Server error: HTTP ' + r.status));
+      return data;
+    });
+  }
+
+  // --- API ---
+  var api = {
+    list: function (q, field) { return fetch('/api/books' + (q ? '?q=' + encodeURIComponent(q) + (field ? '&field=' + field : '') : '')).then(apiResponse); },
+    get: function (id) { return fetch('/api/books/' + id).then(apiResponse); },
+    create: function (b) { return fetch('/api/books', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(apiResponse); },
+    update: function (id, b) { return fetch('/api/books/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(apiResponse); },
+    del: function (id) { return fetch('/api/books/' + id, { method: 'DELETE' }).then(apiResponse); },
+    bulkDelete: function (ids) { return fetch('/api/books/bulk-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids }) }).then(apiResponse); },
+    bulkUpdate: function (ids, upd) { return fetch('/api/books/bulk-update', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids, update: upd }) }).then(apiResponse); },
+    fetchMeta: function (isbn) { return fetch('/api/metadata/' + encodeURIComponent(isbn)).then(apiResponse); },
+    getSettings: function () { return fetch('/api/settings').then(apiResponse); },
+    saveSettings: function (s) { return fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s) }).then(apiResponse); },
+    clearLibrary: function () { return fetch('/api/clear', { method: 'POST' }).then(apiResponse); },
+    importBooks: function (books) {
+      var blob = new Blob([JSON.stringify(books)], { type: 'application/json' });
+      var fd = new FormData();
+      fd.append('file', blob, 'import.json');
+      return fetch('/api/import', { method: 'POST', body: fd }).then(apiResponse);
+    },
+    uploadCover: function (file) {
+      var fd = new FormData();
+      fd.append('cover', file);
+      return fetch('/api/upload-cover', { method: 'POST', body: fd }).then(apiResponse);
     }
   };
 
-  // Elements
-  const searchEl = document.getElementById('search');
-  const viewSel = document.getElementById('view');
-  const galleryEl = document.getElementById('gallery');
-  const tableEl = document.getElementById('table');
-  const addBtn = document.getElementById('addBtn');
-  const importFile = document.getElementById('importFile');
-  const previewImportBtn = document.getElementById('previewImportBtn');
-  const scanBtn = document.getElementById('scanBtn');
+  // --- Elements ---
+  var searchEl = document.getElementById('search');
+  var viewSel = document.getElementById('view');
+  var locationFilter = document.getElementById('locationFilter');
+  var galleryEl = document.getElementById('gallery');
+  var tableEl = document.getElementById('table');
+  var emptyEl = document.getElementById('empty');
+  var addBtn = document.getElementById('addBtn');
+  var importFile = document.getElementById('importFile');
+  var scanBtn = document.getElementById('scanBtn');
 
-  // Modal fields
-  const modal = document.getElementById('modal');
-  const modalTitle = document.getElementById('modal-title');
-  const isbnEl = document.getElementById('isbn');
-  const titleEl = document.getElementById('title');
-  const authorsEl = document.getElementById('authors');
-  const locationEl = document.getElementById('location');
-  const coverEl = document.getElementById('cover');
-  const notesEl = document.getElementById('notes');
-  const saveBtn = document.getElementById('saveBtn');
-  const cancelBtn = document.getElementById('cancelBtn');
-  const fetchMetaBtn = document.getElementById('fetchMeta');
-  const modalError = document.getElementById('modal-error');
+  var modal = document.getElementById('modal');
+  var modalTitle = document.getElementById('modal-title');
+  var isbnEl = document.getElementById('isbn');
+  var isbnStatus = document.getElementById('isbn-status');
+  var titleEl = document.getElementById('title');
+  var authorsEl = document.getElementById('authors');
+  var locationEl = document.getElementById('location');
+  var coverEl = document.getElementById('cover');
+  var coverUpload = document.getElementById('coverUpload');
+  var coverStatus = document.getElementById('coverStatus');
+  var notesEl = document.getElementById('notes');
+  var customFieldsArea = document.getElementById('customFieldsArea');
+  var saveBtn = document.getElementById('saveBtn');
+  var cancelBtn = document.getElementById('cancelBtn');
+  var fetchMetaBtn = document.getElementById('fetchMeta');
+  var modalError = document.getElementById('modal-error');
 
-  const importPreviewModal = document.getElementById('importPreview');
-  const previewArea = document.getElementById('previewArea');
-  const importErrors = document.getElementById('importErrors');
-  const confirmImportBtn = document.getElementById('confirmImportBtn');
-  const cancelImportBtn = document.getElementById('cancelImportBtn');
+  var detailModal = document.getElementById('detail');
+  var detailCover = document.getElementById('detail-cover');
+  var detailTitle = document.getElementById('detail-title');
+  var detailAuthors = document.getElementById('detail-authors');
+  var detailIsbn = document.getElementById('detail-isbn');
+  var detailLocation = document.getElementById('detail-location');
+  var detailPublisher = document.getElementById('detail-publisher');
+  var detailPublishDate = document.getElementById('detail-publishDate');
+  var detailPages = document.getElementById('detail-pages');
+  var detailNotes = document.getElementById('detail-notes');
+  var detailAdded = document.getElementById('detail-added');
+  var detailCustomFields = document.getElementById('detail-custom-fields');
+  var detailEditBtn = document.getElementById('detailEditBtn');
+  var detailDeleteBtn = document.getElementById('detailDeleteBtn');
+  var detailCloseBtn = document.getElementById('detailCloseBtn');
 
-  let editingId = null;
-  let importPreviewEntries = [];
+  var importPreviewModal = document.getElementById('importPreview');
+  var previewArea = document.getElementById('previewArea');
+  var importErrors = document.getElementById('importErrors');
+  var confirmImportBtn = document.getElementById('confirmImportBtn');
+  var cancelImportBtn = document.getElementById('cancelImportBtn');
+  var importLocationEl = document.getElementById('importLocation');
+  var fetchAllMetaBtn = document.getElementById('fetchAllMetaBtn');
+  var fetchAllStatus = document.getElementById('fetchAllStatus');
+  var importProgress = document.getElementById('importProgress');
+  var importProgressFill = document.getElementById('importProgressFill');
+  var importProgressText = document.getElementById('importProgressText');
 
-  function showModal(edit=null) {
+  var settingsBtn = document.getElementById('settingsBtn');
+  var settingsModal = document.getElementById('settingsModal');
+  var settAutoFetch = document.getElementById('settAutoFetch');
+  var clearLibraryBtn = document.getElementById('clearLibraryBtn');
+  var settingsCloseBtn = document.getElementById('settingsCloseBtn');
+  var customFieldsList = document.getElementById('customFieldsList');
+  var newFieldName = document.getElementById('newFieldName');
+  var addFieldBtn = document.getElementById('addFieldBtn');
+
+  var selectionBar = document.getElementById('selectionBar');
+  var selectionCount = document.getElementById('selectionCount');
+  var selAll = document.getElementById('selAll');
+  var selSetLocation = document.getElementById('selSetLocation');
+  var selDelete = document.getElementById('selDelete');
+  var selClear = document.getElementById('selClear');
+
+  var modalCoverPreview = document.getElementById('modal-cover-preview');
+  var modalPreviewTitle = document.getElementById('modal-preview-title');
+  var modalPreviewAuthors = document.getElementById('modal-preview-authors');
+  var modalPreviewIsbn = document.getElementById('modal-preview-isbn');
+
+  var editingId = null;
+  var importPreviewEntries = [];
+  var currentDetailBook = null;
+  var allBooks = [];
+  var settings = { autoFetchMetadata: true, customFields: [] };
+  var isbnFetchTimeout = null;
+  var selectedIds = new Set();
+  var importCancelled = false;
+  var focusedIndex = -1;
+
+  // Load settings
+  try {
+    settings = await api.getSettings();
+    if (!settings.customFields) settings.customFields = [];
+    settAutoFetch.checked = settings.autoFetchMetadata !== false;
+  } catch (e) { /* defaults */ }
+
+  // --- Custom fields ---
+  function renderCustomFieldsSettings() {
+    customFieldsList.innerHTML = '';
+    (settings.customFields || []).forEach(function (f, idx) {
+      var row = document.createElement('div');
+      row.className = 'custom-field-row';
+      var span = document.createElement('span');
+      span.textContent = f.label || f.name;
+      var btn = document.createElement('button');
+      btn.className = 'btn btn-danger';
+      btn.textContent = 'Remove';
+      btn.addEventListener('click', function () {
+        settings.customFields.splice(idx, 1);
+        renderCustomFieldsSettings();
+      });
+      row.appendChild(span);
+      row.appendChild(btn);
+      customFieldsList.appendChild(row);
+    });
+  }
+
+  addFieldBtn.addEventListener('click', function () {
+    var name = newFieldName.value.trim();
+    if (!name) return;
+    var key = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    if (!key) return;
+    if (settings.customFields.find(function (f) { return f.name === key; })) return;
+    settings.customFields.push({ name: key, label: name });
+    newFieldName.value = '';
+    renderCustomFieldsSettings();
+  });
+
+  function renderCustomFieldsInModal(book) {
+    customFieldsArea.innerHTML = '';
+    (settings.customFields || []).forEach(function (f) {
+      var label = document.createElement('label');
+      label.textContent = f.label || f.name;
+      var input = document.createElement('input');
+      input.dataset.customField = f.name;
+      input.value = (book && book[f.name]) || '';
+      label.appendChild(input);
+      customFieldsArea.appendChild(label);
+    });
+  }
+
+  function renderCustomFieldsInDetail(book) {
+    detailCustomFields.innerHTML = '';
+    (settings.customFields || []).forEach(function (f) {
+      if (book[f.name]) {
+        var dt = document.createElement('dt');
+        dt.textContent = f.label || f.name;
+        var dd = document.createElement('dd');
+        dd.textContent = book[f.name];
+        detailCustomFields.appendChild(dt);
+        detailCustomFields.appendChild(dd);
+      }
+    });
+  }
+
+  function getCustomFieldValues() {
+    var vals = {};
+    customFieldsArea.querySelectorAll('[data-custom-field]').forEach(function (input) {
+      var v = input.value.trim();
+      if (v) vals[input.dataset.customField] = v;
+    });
+    return vals;
+  }
+
+  // --- Cover upload ---
+  coverUpload.addEventListener('change', async function () {
+    var file = coverUpload.files[0];
+    if (!file) return;
+    try {
+      var result = await api.uploadCover(file);
+      if (result.cover) {
+        coverEl.value = result.cover;
+        coverStatus.textContent = 'Cover uploaded';
+        coverStatus.style.color = '#16a34a';
+        updateModalPreview();
+      }
+    } catch (e) { alert('Upload failed: ' + e.message); }
+    coverUpload.value = '';
+  });
+
+  // --- Modal preview ---
+  function updateModalPreview() {
+    modalCoverPreview.src = coverSrc(coverEl.value);
+    modalCoverPreview.onerror = onImgError;
+    modalPreviewTitle.textContent = titleEl.value.trim() || '';
+    modalPreviewAuthors.textContent = authorsEl.value.trim() || '';
+    modalPreviewIsbn.textContent = isbnEl.value.trim() || '';
+  }
+  [titleEl, authorsEl].forEach(function (el) { el.addEventListener('input', updateModalPreview); });
+
+  // --- ISBN input validation + auto-fetch ---
+  function updateIsbnStatus() {
+    var raw = isbnEl.value.trim();
+    if (!raw || !isCompleteISBN(raw)) {
+      isbnStatus.textContent = '';
+      isbnStatus.className = 'isbn-status';
+      return;
+    }
+    if (validateISBNChecksum(raw)) {
+      isbnStatus.textContent = 'Valid ISBN';
+      isbnStatus.className = 'isbn-status valid';
+    } else {
+      var clean = raw.replace(/[\s\-]/g, '');
+      if (clean.length === 10) {
+        var fixed = fixISBN10CheckDigit(clean);
+        if (fixed && validateISBN10(fixed)) {
+          isbnStatus.textContent = 'Fixed: ' + fixed;
+          isbnStatus.className = 'isbn-status valid';
+          isbnEl.value = fixed;
+          return;
+        }
+      }
+      isbnStatus.textContent = 'Invalid checksum';
+      isbnStatus.className = 'isbn-status invalid';
+    }
+  }
+
+  isbnEl.addEventListener('input', function () {
+    updateModalPreview();
+    updateIsbnStatus();
+    if (isbnFetchTimeout) clearTimeout(isbnFetchTimeout);
+    var raw = isbnEl.value.trim();
+    if (settings.autoFetchMetadata && isCompleteISBN(raw) && validateISBNChecksum(raw) && !titleEl.value.trim()) {
+      isbnFetchTimeout = setTimeout(function () { fetchMetaBtn.click(); }, 500);
+    }
+  });
+
+  // --- Add / Edit modal ---
+  function showModal(edit) {
     modal.classList.remove('hidden');
-    modalError.style.display = 'none';
+    modalError.classList.add('hidden');
     if (edit) {
       modalTitle.textContent = 'Edit Book';
       isbnEl.value = edit.isbn || '';
@@ -57,229 +323,484 @@
       coverEl.value = edit.cover || '';
       notesEl.value = edit.notes || '';
       editingId = edit.id;
+      coverStatus.textContent = edit.cover ? 'Cover set' : '';
+      coverStatus.style.color = '#64748b';
     } else {
       modalTitle.textContent = 'Add Book';
-      isbnEl.value = '';
-      titleEl.value = '';
-      authorsEl.value = '';
-      locationEl.value = '';
-      coverEl.value = '';
-      notesEl.value = '';
+      isbnEl.value = ''; titleEl.value = ''; authorsEl.value = '';
+      locationEl.value = ''; coverEl.value = ''; notesEl.value = '';
       editingId = null;
+      coverStatus.textContent = '';
     }
+    renderCustomFieldsInModal(edit || {});
+    updateModalPreview();
+    updateIsbnStatus();
+    // Focus ISBN field for quick entry
+    setTimeout(function () { isbnEl.focus(); }, 50);
   }
   function hideModal() { modal.classList.add('hidden'); }
 
   function validateBook(b) {
-    const errors = [];
+    var errors = [];
     if (!b.title && !b.isbn) errors.push('Either title or ISBN is required.');
     if (b.isbn && !/^[0-9Xx\- ]+$/.test(b.isbn)) errors.push('ISBN contains invalid characters.');
     return errors;
   }
 
-  fetchMetaBtn.addEventListener('click', async () => {
-    const isbn = isbnEl.value.trim();
+  fetchMetaBtn.addEventListener('click', async function () {
+    var isbn = isbnEl.value.trim();
     if (!isbn) return alert('ISBN required');
     fetchMetaBtn.disabled = true;
-    const m = await fetchMetaByISBN(isbn);
-    fetchMetaBtn.disabled = false;
-    if (m) {
-      if (m.title) titleEl.value = m.title;
-      if (m.authors) authorsEl.value = m.authors.join(', ');
-      if (m.cover) coverEl.value = m.cover;
-    } else {
-      alert('No metadata found');
+    fetchMetaBtn.textContent = 'Fetching...';
+    try {
+      var m = await api.fetchMeta(isbn);
+      if (m && m.title) {
+        titleEl.value = m.title;
+        if (m.authors) authorsEl.value = m.authors.join(', ');
+        if (m.cover) {
+          coverEl.value = m.cover;
+          coverStatus.textContent = 'Cover found';
+          coverStatus.style.color = '#16a34a';
+        }
+        updateModalPreview();
+      } else {
+        alert('No metadata found');
+      }
+    } catch (e) {
+      alert('Fetch error: ' + e.message);
     }
+    fetchMetaBtn.disabled = false;
+    fetchMetaBtn.textContent = 'Fetch Metadata';
   });
 
-  saveBtn.addEventListener('click', async () => {
-    const book = {
+  saveBtn.addEventListener('click', async function () {
+    var book = {
       isbn: isbnEl.value.trim() || undefined,
       title: titleEl.value.trim() || undefined,
-      authors: authorsEl.value.split(',').map(s=>s.trim()).filter(Boolean),
+      authors: authorsEl.value.split(',').map(function (s) { return s.trim(); }).filter(Boolean),
       location: locationEl.value.trim() || undefined,
-      cover: coverEl.value.trim() || undefined,
+      cover: coverEl.value || undefined,
       notes: notesEl.value.trim() || undefined
     };
-    const errors = validateBook(book);
+    var customVals = getCustomFieldValues();
+    Object.keys(customVals).forEach(function (k) { book[k] = customVals[k]; });
+    var errors = validateBook(book);
     if (errors.length) {
       modalError.textContent = errors.join(' ');
-      modalError.style.display = 'block';
+      modalError.classList.remove('hidden');
       return;
     }
+    saveBtn.disabled = true;
     try {
-      if (editingId) {
-        await api.update(editingId, book);
-      } else {
-        await api.create(book);
-      }
+      if (editingId) { await api.update(editingId, book); }
+      else { await api.create(book); }
       hideModal();
       await refresh();
-    } catch (e) {
-      alert('Save error: ' + e.message);
+    } catch (e) { alert('Save error: ' + e.message); }
+    saveBtn.disabled = false;
+  });
+  cancelBtn.addEventListener('click', hideModal);
+  addBtn.addEventListener('click', function () { showModal(null); });
+
+  // --- Detail modal ---
+  function showDetail(book) {
+    currentDetailBook = book;
+    detailCover.src = coverSrc(book.cover);
+    detailCover.onerror = onImgError;
+    detailTitle.textContent = book.title || '(no title)';
+    detailAuthors.textContent = (book.authors || []).join(', ') || 'Unknown author';
+    detailIsbn.textContent = book.isbn || '-';
+    detailLocation.textContent = book.location || '-';
+    detailPublisher.textContent = book.publisher || '-';
+    detailPublishDate.textContent = book.publishDate || '-';
+    detailPages.textContent = book.pages || '-';
+    detailNotes.textContent = book.notes || '-';
+    detailAdded.textContent = book.created_at ? new Date(book.created_at).toLocaleDateString() : '-';
+    renderCustomFieldsInDetail(book);
+    detailModal.classList.remove('hidden');
+  }
+
+  detailCloseBtn.addEventListener('click', function () { detailModal.classList.add('hidden'); });
+  detailEditBtn.addEventListener('click', function () { detailModal.classList.add('hidden'); showModal(currentDetailBook); });
+  detailDeleteBtn.addEventListener('click', async function () {
+    if (currentDetailBook && confirm('Delete this book?')) {
+      await api.del(currentDetailBook.id);
+      detailModal.classList.add('hidden');
+      await refresh();
     }
   });
-  cancelBtn.addEventListener('click', () => hideModal());
 
-  addBtn.addEventListener('click', () => showModal(null));
-
-  // Import preview and validation
-  previewImportBtn.addEventListener('click', async () => {
-    const f = importFile.files[0];
-    if (!f) return alert('Select a file first');
-    const text = await f.text();
-    let entries = [];
-    const fn = f.name || '';
-    try {
-      if (fn.endsWith('.json') || text.trim().startsWith('[')) {
-        entries = JSON.parse(text);
-      } else {
-        // parse CSV using PapaParse
-        const parsed = Papa.parse(text, { header: true, dynamicTyping: false, skipEmptyLines: true });
-        if (parsed.errors && parsed.errors.length) {
-          importErrors.textContent = 'CSV parse errors: ' + parsed.errors.map(e=>e.message).join('; ');
-          return;
-        }
-        entries = parsed.data;
-      }
-    } catch (e) {
-      importErrors.textContent = 'Parse error: ' + e.message;
-      return;
+  // --- Multi-select ---
+  function updateSelectionBar() {
+    var count = selectedIds.size;
+    if (count > 0) {
+      selectionBar.classList.remove('hidden');
+      selectionCount.textContent = count + ' selected';
+    } else {
+      selectionBar.classList.add('hidden');
     }
-
-    // Normalize and validate
-    importErrors.textContent = '';
-    importPreviewEntries = entries.map((r, idx) => {
-      const item = {
-        title: r.title || r.Title || r.name || r.Name || undefined,
-        authors: (r.authors || r.authors || r.author || r.Author || '').toString().split(',').map(s=>s.trim()).filter(Boolean),
-        isbn: (r.isbn || r.ISBN || '').toString(),
-        location: r.location || r.Location || '',
-        notes: r.notes || ''
-      };
-      const errors = validateBook(item);
-      return { item, errors, row: idx+1 };
+    document.querySelectorAll('.card-checkbox, .row-checkbox').forEach(function (cb) {
+      cb.checked = selectedIds.has(cb.dataset.id);
     });
+    document.querySelectorAll('.card').forEach(function (card) {
+      card.classList.toggle('selected', selectedIds.has(card.dataset.id));
+    });
+    document.querySelectorAll('.data-table tbody tr').forEach(function (tr) {
+      tr.classList.toggle('selected', selectedIds.has(tr.dataset.id));
+    });
+    var selectAllCb = document.querySelector('.select-all');
+    if (selectAllCb) {
+      var filtered = getFilteredBooks();
+      selectAllCb.checked = filtered.length > 0 && filtered.every(function (b) { return selectedIds.has(b.id); });
+    }
+  }
 
-    // Render preview
+  function toggleSelect(id) {
+    if (selectedIds.has(id)) selectedIds.delete(id);
+    else selectedIds.add(id);
+    updateSelectionBar();
+  }
+
+  selAll.addEventListener('click', function () {
+    var filtered = getFilteredBooks();
+    var allSelected = filtered.length > 0 && filtered.every(function (b) { return selectedIds.has(b.id); });
+    if (allSelected) {
+      filtered.forEach(function (b) { selectedIds.delete(b.id); });
+    } else {
+      filtered.forEach(function (b) { selectedIds.add(b.id); });
+    }
+    updateSelectionBar();
+  });
+
+  selClear.addEventListener('click', function () {
+    selectedIds.clear();
+    updateSelectionBar();
+  });
+
+  selDelete.addEventListener('click', async function () {
+    if (!selectedIds.size) return;
+    if (!confirm('Delete ' + selectedIds.size + ' books?')) return;
+    await api.bulkDelete(Array.from(selectedIds));
+    selectedIds.clear();
+    await refresh();
+  });
+
+  selSetLocation.addEventListener('click', async function () {
+    var loc = prompt('Set location for selected books:');
+    if (loc === null) return;
+    await api.bulkUpdate(Array.from(selectedIds), { location: loc });
+    selectedIds.clear();
+    await refresh();
+  });
+
+  // --- Import ---
+  function renderImportPreview() {
     previewArea.innerHTML = '';
-    const table = document.createElement('table');
-    table.className = 'table';
-    const thead = document.createElement('thead');
-    const headerRow = document.createElement('tr');
-    ['#','Title','Authors','ISBN','Location','Errors'].forEach(h => {
-      const th = document.createElement('th'); th.textContent = h; headerRow.appendChild(th);
+    var table = document.createElement('table');
+    table.className = 'import-table';
+    var thead = document.createElement('thead');
+    var hr = document.createElement('tr');
+    ['#', 'Title', 'Authors', 'ISBN', 'Status'].forEach(function (h) {
+      var th = document.createElement('th'); th.textContent = h; hr.appendChild(th);
     });
-    thead.appendChild(headerRow);
+    thead.appendChild(hr);
     table.appendChild(thead);
-    const tbody = document.createElement('tbody');
-    for (const p of importPreviewEntries) {
-      const tr = document.createElement('tr');
-      const tdIdx = document.createElement('td'); tdIdx.textContent = p.row; tr.appendChild(tdIdx);
-      const tdTitle = document.createElement('td'); tdTitle.textContent = p.item.title || ''; tr.appendChild(tdTitle);
-      const tdAuth = document.createElement('td'); tdAuth.textContent = (p.item.authors||[]).join(', '); tr.appendChild(tdAuth);
-      const tdIsbn = document.createElement('td'); tdIsbn.textContent = p.item.isbn || ''; tr.appendChild(tdIsbn);
-      const tdLoc = document.createElement('td'); tdLoc.textContent = p.item.location || ''; tr.appendChild(tdLoc);
-      const tdErr = document.createElement('td'); tdErr.textContent = p.errors.join('; '); tdErr.style.color = p.errors.length ? '#b22' : 'inherit'; tr.appendChild(tdErr);
+    var tbody = document.createElement('tbody');
+    for (var p of importPreviewEntries) {
+      var tr = document.createElement('tr');
+      var vals = [p.row, p.item.title || '', (p.item.authors || []).join(', '), p.item.isbn || ''];
+      vals.forEach(function (val) { var td = document.createElement('td'); td.textContent = val; tr.appendChild(td); });
+      var tdStatus = document.createElement('td');
+      if (p.errors.length) { tdStatus.textContent = p.errors.join('; '); tdStatus.className = 'row-error'; }
+      else if (p.fetching) { tdStatus.textContent = 'Fetching...'; tdStatus.className = 'fetching'; }
+      else if (p.imported) { tdStatus.textContent = 'Imported'; tdStatus.style.color = '#2563eb'; }
+      else if (p.item.title) { tdStatus.textContent = 'Ready'; tdStatus.style.color = '#16a34a'; }
+      else { tdStatus.textContent = 'ISBN only'; tdStatus.style.color = '#64748b'; }
+      tr.appendChild(tdStatus);
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
     previewArea.appendChild(table);
+  }
+
+  importFile.addEventListener('change', async function () {
+    var f = importFile.files[0];
+    if (!f) return;
+    var text = await f.text();
+    var entries = [];
+    var fn = f.name || '';
+    try {
+      if (fn.endsWith('.json') || text.trim().startsWith('[')) {
+        entries = JSON.parse(text);
+      } else if (fn.endsWith('.txt')) {
+        var lines = text.trim().split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+        entries = lines.map(function (isbn) { return { isbn: isbn }; });
+      } else {
+        var parsed = Papa.parse(text, { header: true, dynamicTyping: false, skipEmptyLines: true });
+        if (parsed.errors && parsed.errors.length) {
+          importErrors.textContent = 'CSV parse errors: ' + parsed.errors.map(function (e) { return e.message; }).join('; ');
+          return;
+        }
+        entries = parsed.data;
+      }
+    } catch (e) { importErrors.textContent = 'Parse error: ' + e.message; return; }
+
+    importErrors.textContent = '';
+    importLocationEl.value = '';
+    fetchAllStatus.textContent = '';
+    importProgress.classList.add('hidden');
+    importCancelled = false;
+    importPreviewEntries = entries.map(function (r, idx) {
+      var item = {
+        title: r.title || r.Title || r.name || r.Name || undefined,
+        authors: (r.Authors || r.authors || r.author || r.Author || '').toString().split(',').map(function (s) { return s.trim(); }).filter(Boolean),
+        isbn: (r.isbn || r.ISBN || '').toString(),
+        location: r.location || r.Location || '',
+        notes: r.notes || ''
+      };
+      return { item: item, errors: validateBook(item), row: idx + 1, fetching: false, imported: false };
+    });
+    renderImportPreview();
     importPreviewModal.classList.remove('hidden');
+    importFile.value = '';
   });
 
-  cancelImportBtn.addEventListener('click', () => {
+  fetchAllMetaBtn.addEventListener('click', async function () {
+    var isbnEntries = importPreviewEntries.filter(function (p) { return p.item.isbn && !p.item.title; });
+    if (!isbnEntries.length) { fetchAllStatus.textContent = 'No ISBNs to fetch'; return; }
+    fetchAllMetaBtn.disabled = true;
+    var done = 0;
+    var total = isbnEntries.length;
+    fetchAllStatus.textContent = 'Fetching 0/' + total + '...';
+
+    for (var i = 0; i < isbnEntries.length; i += 3) {
+      var batch = isbnEntries.slice(i, i + 3);
+      batch.forEach(function (p) { p.fetching = true; });
+      renderImportPreview();
+      var results = await Promise.allSettled(batch.map(function (p) {
+        return api.fetchMeta(p.item.isbn);
+      }));
+      for (var j = 0; j < batch.length; j++) {
+        var p = batch[j];
+        p.fetching = false;
+        if (results[j].status === 'fulfilled') {
+          var m = results[j].value;
+          if (m && m.title) {
+            p.item.title = m.title;
+            if (m.authors && m.authors.length) p.item.authors = m.authors;
+            if (m.cover) p.item.cover = m.cover;
+          }
+        }
+        p.errors = validateBook(p.item);
+        done++;
+      }
+      fetchAllStatus.textContent = 'Fetching ' + done + '/' + total + '...';
+      renderImportPreview();
+    }
+    fetchAllMetaBtn.disabled = false;
+    fetchAllStatus.textContent = 'Done! Fetched ' + done + ' entries.';
+  });
+
+  cancelImportBtn.addEventListener('click', function () {
+    importCancelled = true;
     importPreviewModal.classList.add('hidden');
   });
 
-  confirmImportBtn.addEventListener('click', async () => {
-    // If any entries have errors, confirm with user
-    const hasErrors = importPreviewEntries.some(p => p.errors.length);
-    if (hasErrors) {
-      if (!confirm('Some entries have validation errors. Import only valid entries? Press Cancel to abort.')) return;
+  confirmImportBtn.addEventListener('click', async function () {
+    importCancelled = false;
+    var bulkLoc = importLocationEl.value.trim();
+    if (bulkLoc) {
+      importPreviewEntries.forEach(function (p) {
+        if (!p.item.location) p.item.location = bulkLoc;
+      });
     }
-    // Build CSV/JSON blob to send for server import: We will construct a JSON array of the valid ones
-    const toImport = importPreviewEntries.filter(p=>p.errors.length===0).map(p=>p.item);
-    if (toImport.length === 0) {
-      alert('No valid entries to import');
-      return;
+    var valid = importPreviewEntries.filter(function (p) { return p.errors.length === 0 && !p.imported; });
+    var invalid = importPreviewEntries.filter(function (p) { return p.errors.length > 0; });
+    if (invalid.length > 0) {
+      if (!confirm('Skipping ' + invalid.length + ' invalid entries. Import ' + valid.length + ' valid entries?')) return;
     }
-    // Send as JSON file via FormData
-    const blob = new Blob([JSON.stringify(toImport, null, 2)], { type: 'application/json' });
-    const fd = new FormData();
-    fd.append('file', blob, 'import.json');
+    if (!valid.length) { alert('No valid entries to import'); return; }
+
     confirmImportBtn.disabled = true;
-    try {
-      const resp = await fetch('/api/import', { method: 'POST', body: fd }).then(r=>r.json());
-      alert('Imported: ' + (resp.imported || 0));
+    cancelImportBtn.disabled = true;
+    importProgress.classList.remove('hidden');
+
+    var total = valid.length;
+    var done = 0;
+    var batchSize = 10;
+    for (var i = 0; i < valid.length; i += batchSize) {
+      if (importCancelled) break;
+      var batch = valid.slice(i, i + batchSize);
+      var items = batch.map(function (p) { return p.item; });
+      try {
+        await api.importBooks(items);
+        batch.forEach(function (p) { p.imported = true; });
+      } catch (e) {
+        importErrors.textContent = 'Import error at batch ' + (Math.floor(i / batchSize) + 1) + ': ' + e.message;
+        break;
+      }
+      done += batch.length;
+      importProgressFill.style.width = Math.round(done / total * 100) + '%';
+      importProgressText.textContent = done + ' / ' + total;
+      renderImportPreview();
+    }
+    confirmImportBtn.disabled = false;
+    cancelImportBtn.disabled = false;
+    if (done === total) {
       importPreviewModal.classList.add('hidden');
       await refresh();
-    } catch (e) {
-      alert('Import error: ' + e.message);
-    } finally {
-      confirmImportBtn.disabled = false;
+    } else {
+      renderImportPreview();
+      await refresh();
     }
   });
 
-  // Search and view
-  searchEl.addEventListener('input', debounce(refresh, 300));
-  viewSel.addEventListener('change', () => {
-    document.getElementById('gallery').classList.toggle('hidden', viewSel.value !== 'gallery');
-    document.getElementById('table').classList.toggle('hidden', viewSel.value !== 'table');
+  // --- Settings ---
+  settingsBtn.addEventListener('click', function () {
+    settAutoFetch.checked = settings.autoFetchMetadata !== false;
+    renderCustomFieldsSettings();
+    settingsModal.classList.remove('hidden');
   });
 
-  // Basic gallery render (kept simple)
-  async function renderGallery(books) {
+  settingsCloseBtn.addEventListener('click', async function () {
+    settings.autoFetchMetadata = settAutoFetch.checked;
+    await api.saveSettings(settings);
+    settingsModal.classList.add('hidden');
+  });
+
+  clearLibraryBtn.addEventListener('click', async function () {
+    if (!confirm('This will permanently delete ALL books. Are you sure?')) return;
+    if (!confirm('Really? This cannot be undone!')) return;
+    await api.clearLibrary();
+    settingsModal.classList.add('hidden');
+    selectedIds.clear();
+    await refresh();
+  });
+
+  // --- Search, filter, view toggle ---
+  searchEl.addEventListener('input', debounce(refresh, 300));
+  locationFilter.addEventListener('change', function () { renderFiltered(); });
+  viewSel.addEventListener('change', function () {
+    galleryEl.classList.toggle('hidden', viewSel.value !== 'gallery');
+    tableEl.classList.toggle('hidden', viewSel.value !== 'table');
+  });
+
+  // --- Rendering ---
+  function getFilteredBooks() {
+    var loc = locationFilter.value;
+    if (!loc) return allBooks;
+    return allBooks.filter(function (b) { return b.location === loc; });
+  }
+
+  function updateLocationFilter(books) {
+    var current = locationFilter.value;
+    var locs = []; var seen = {};
+    books.forEach(function (b) { if (b.location && !seen[b.location]) { seen[b.location] = true; locs.push(b.location); } });
+    locs.sort();
+    locationFilter.innerHTML = '<option value="">All locations</option>';
+    locs.forEach(function (l) {
+      var opt = document.createElement('option');
+      opt.value = l; opt.textContent = l;
+      if (l === current) opt.selected = true;
+      locationFilter.appendChild(opt);
+    });
+  }
+
+  function renderFiltered() {
+    var books = getFilteredBooks();
+    focusedIndex = -1;
+    emptyEl.classList.toggle('hidden', books.length > 0);
+    galleryEl.classList.toggle('hidden', books.length === 0 || viewSel.value !== 'gallery');
+    tableEl.classList.toggle('hidden', books.length === 0 || viewSel.value !== 'table');
+    renderGallery(books);
+    renderTable(books);
+    updateSelectionBar();
+  }
+
+  function renderGallery(books) {
     galleryEl.innerHTML = '';
-    for (const b of books) {
-      const div = document.createElement('div');
-      div.className = 'card';
-      const img = document.createElement('img');
-      img.src = b.cover || '/placeholder.png';
+    for (var b of books) {
+      var div = document.createElement('div');
+      div.className = 'card' + (selectedIds.has(b.id) ? ' selected' : '');
+      div.setAttribute('data-id', b.id);
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'card-checkbox';
+      cb.dataset.id = b.id;
+      cb.checked = selectedIds.has(b.id);
+      cb.addEventListener('click', (function (id) {
+        return function (e) { e.stopPropagation(); toggleSelect(id); };
+      })(b.id));
+      div.appendChild(cb);
+      var img = document.createElement('img');
+      img.src = coverSrc(b.cover);
       img.alt = b.title || 'No title';
-      const title = document.createElement('h4'); title.textContent = b.title || '(no title)';
-      const p = document.createElement('p'); p.textContent = (b.authors || []).join(', ');
-      const loc = document.createElement('p'); loc.textContent = b.location || '';
-      const actions = document.createElement('div'); actions.style.marginTop = '6px';
-      const editBtn = document.createElement('button'); editBtn.textContent = 'Edit'; editBtn.addEventListener('click', () => showModal(b));
-      const delBtn = document.createElement('button'); delBtn.textContent = 'Delete'; delBtn.addEventListener('click', async () => {
-        if (confirm('Delete?')) {
-          await api.delete(b.id);
-          await refresh();
-        }
-      });
-      actions.appendChild(editBtn); actions.appendChild(delBtn);
-      div.appendChild(img); div.appendChild(title); div.appendChild(p); div.appendChild(loc); div.appendChild(actions);
+      img.loading = 'lazy';
+      img.onerror = onImgError;
+      var body = document.createElement('div');
+      body.className = 'card-body';
+      var h4 = document.createElement('h4'); h4.textContent = b.title || '(no title)';
+      var auth = document.createElement('p'); auth.className = 'card-authors'; auth.textContent = (b.authors || []).join(', ');
+      var loc = document.createElement('p'); loc.className = 'card-location'; loc.textContent = b.location || '';
+      body.appendChild(h4); body.appendChild(auth); body.appendChild(loc);
+      div.appendChild(img); div.appendChild(body);
+      div.addEventListener('click', showDetail.bind(null, b));
       galleryEl.appendChild(div);
     }
   }
 
-  async function renderTable(books) {
+  function renderTable(books) {
     tableEl.innerHTML = '';
-    const table = document.createElement('table');
-    table.className = 'table';
-    const thead = document.createElement('thead');
-    const headerRow = document.createElement('tr');
-    ['Cover','Title','Authors','ISBN','Location','Actions'].forEach(h=>{
-      const th = document.createElement('th'); th.textContent = h; headerRow.appendChild(th);
+    var table = document.createElement('table');
+    table.className = 'data-table';
+    var thead = document.createElement('thead');
+    var hr = document.createElement('tr');
+    var thSel = document.createElement('th');
+    var selAllCb = document.createElement('input');
+    selAllCb.type = 'checkbox';
+    selAllCb.className = 'select-all';
+    selAllCb.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var filtered = getFilteredBooks();
+      if (selAllCb.checked) {
+        filtered.forEach(function (b) { selectedIds.add(b.id); });
+      } else {
+        filtered.forEach(function (b) { selectedIds.delete(b.id); });
+      }
+      updateSelectionBar();
     });
-    thead.appendChild(headerRow);
+    thSel.appendChild(selAllCb);
+    hr.appendChild(thSel);
+    ['Cover', 'Title', 'Authors', 'ISBN', 'Location'].forEach(function (h) {
+      var th = document.createElement('th'); th.textContent = h; hr.appendChild(th);
+    });
+    thead.appendChild(hr);
     table.appendChild(thead);
-    const tbody = document.createElement('tbody');
-    for (const b of books) {
-      const tr = document.createElement('tr');
-      const tdCover = document.createElement('td');
-      const img = document.createElement('img'); img.src = b.cover || '/placeholder.png'; img.style.width = '60px';
+    var tbody = document.createElement('tbody');
+    for (var b of books) {
+      var tr = document.createElement('tr');
+      tr.setAttribute('data-id', b.id);
+      if (selectedIds.has(b.id)) tr.classList.add('selected');
+      var tdSel = document.createElement('td');
+      var rowCb = document.createElement('input');
+      rowCb.type = 'checkbox';
+      rowCb.className = 'row-checkbox';
+      rowCb.dataset.id = b.id;
+      rowCb.checked = selectedIds.has(b.id);
+      rowCb.addEventListener('click', (function (id) {
+        return function (e) { e.stopPropagation(); toggleSelect(id); };
+      })(b.id));
+      tdSel.appendChild(rowCb);
+      tr.appendChild(tdSel);
+      var tdCover = document.createElement('td');
+      var img = document.createElement('img');
+      img.src = coverSrc(b.cover); img.loading = 'lazy'; img.onerror = onImgError;
       tdCover.appendChild(img); tr.appendChild(tdCover);
-      const tdTitle = document.createElement('td'); tdTitle.textContent = b.title || ''; tr.appendChild(tdTitle);
-      const tdAuth = document.createElement('td'); tdAuth.textContent = (b.authors||[]).join(', '); tr.appendChild(tdAuth);
-      const tdIsbn = document.createElement('td'); tdIsbn.textContent = b.isbn || ''; tr.appendChild(tdIsbn);
-      const tdLoc = document.createElement('td'); tdLoc.textContent = b.location || ''; tr.appendChild(tdLoc);
-      const tdActions = document.createElement('td');
-      const editBtn = document.createElement('button'); editBtn.textContent = 'Edit'; editBtn.addEventListener('click', ()=>showModal(b));
-      const delBtn = document.createElement('button'); delBtn.textContent = 'Delete'; delBtn.addEventListener('click', async ()=>{ if (confirm('Delete?')){ await api.delete(b.id); await refresh(); }});
-      tdActions.appendChild(editBtn); tdActions.appendChild(delBtn);
-      tr.appendChild(tdActions);
+      var tdTitle = document.createElement('td'); tdTitle.textContent = b.title || ''; tr.appendChild(tdTitle);
+      var tdAuth = document.createElement('td'); tdAuth.textContent = (b.authors || []).join(', '); tr.appendChild(tdAuth);
+      var tdIsbn = document.createElement('td'); tdIsbn.textContent = b.isbn || ''; tr.appendChild(tdIsbn);
+      var tdLoc = document.createElement('td'); tdLoc.textContent = b.location || ''; tr.appendChild(tdLoc);
+      tr.addEventListener('click', showDetail.bind(null, b));
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
@@ -287,91 +808,276 @@
   }
 
   async function refresh() {
-    const q = searchEl.value.trim();
-    const books = await api.list(q || undefined);
-    await renderGallery(books);
-    await renderTable(books);
+    var q = searchEl.value.trim();
+    allBooks = await api.list(q || undefined);
+    updateLocationFilter(allBooks);
+    renderFiltered();
   }
 
-  // Debounce util
-  function debounce(fn, t) { let tim; return (...a) => { clearTimeout(tim); tim = setTimeout(()=>fn(...a), t); }; }
+  function debounce(fn, t) { var tim; return function () { clearTimeout(tim); tim = setTimeout(fn, t); }; }
 
-  // Barcode scanner UI (unchanged)
-  const scannerModal = document.getElementById('scanner');
-  const scannerArea = document.getElementById('scanner-area');
-  const closeScanner = document.getElementById('closeScanner');
+  // --- Barcode scanner ---
+  var scannerModal = document.getElementById('scanner');
+  var scannerArea = document.getElementById('scanner-area');
+  var closeScanner = document.getElementById('closeScanner');
+  var scannerStream = null;
+  var scannerAnimFrame = null;
+  var scannerRunning = false;
 
-  scanBtn.addEventListener('click', () => {
+  function validateBarcode(code) {
+    return validateISBN13(code) || validateISBN10(code);
+  }
+
+  scanBtn.addEventListener('click', async function () {
     scannerModal.classList.remove('hidden');
-    startScanner();
+    await startScanner();
   });
-  closeScanner.addEventListener('click', () => {
-    stopScanner();
-    scannerModal.classList.add('hidden');
-  });
+  closeScanner.addEventListener('click', function () { stopScanner(); scannerModal.classList.add('hidden'); });
 
-  let scannerRunning = false;
-  function startScanner() {
+  async function startScanner() {
     if (scannerRunning) return;
-    scannerRunning = true;
-    Quagga.init({
-      inputStream: {
-        name: "Live",
-        type: "LiveStream",
-        target: scannerArea,
-        constraints: { facingMode: "environment" }
-      },
-      decoder: {
-        readers: ["ean_reader","ean_8_reader","upc_reader","upc_e_reader","code_128_reader"]
-      }
-    }, function (err) {
-      if (err) {
-        console.error(err);
-        alert('Camera init error: ' + err.message);
-        return;
-      }
-      Quagga.start();
-    });
-    Quagga.onDetected(d => {
-      const code = d.codeResult.code;
-      stopScanner();
+    stopScanner();
+    scannerArea.innerHTML = '';
+
+    var video = document.createElement('video');
+    video.setAttribute('autoplay', '');
+    video.setAttribute('playsinline', '');
+    video.setAttribute('muted', '');
+    video.muted = true;
+    video.style.width = '100%';
+    video.style.display = 'block';
+    scannerArea.appendChild(video);
+
+    try {
+      scannerStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+    } catch (err) {
+      alert('Could not access camera. Make sure camera permissions are granted and you are using HTTPS or localhost.');
       scannerModal.classList.add('hidden');
-      showModal({ isbn: code, title: '', authors: [], location: '' });
-      isbnEl.value = code;
-      fetchMetaBtn.click();
-    });
-  }
-  function stopScanner() {
-    if (scannerRunning) {
-      Quagga.stop();
-      Quagga.offDetected();
-      scannerRunning = false;
-      scannerArea.innerHTML = '';
+      return;
+    }
+
+    video.srcObject = scannerStream;
+    await video.play();
+    scannerRunning = true;
+
+    if ('BarcodeDetector' in window) {
+      scanWithNative(video);
+    } else {
+      scanWithZbar(video);
     }
   }
 
-  // Frontend metadata fetch using OpenLibrary/GoogleBooks for quick UI response
-  async function fetchMetaByISBN(isbn) {
-    if (!isbn) return null;
-    try {
-      const ol = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`).then(r=>r.json());
-      const key = `ISBN:${isbn}`;
-      if (ol && ol[key]) {
-        const it = ol[key];
-        return { title: it.title, authors: (it.authors||[]).map(a=>a.name), cover: (it.cover && (it.cover.large||it.cover.medium||it.cover.small)) || `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg` };
-      }
-    } catch (e) {}
-    try {
-      const gb = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`).then(r=>r.json());
-      if (gb.totalItems > 0 && gb.items && gb.items.length>0) {
-        const v = gb.items[0].volumeInfo;
-        return { title: v.title, authors: v.authors || [], cover: (v.imageLinks && v.imageLinks.thumbnail) || `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg` };
-      }
-    } catch(e) {}
-    return null;
+  function scanWithNative(video) {
+    var detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8'] });
+    var lastDetected = '';
+    var detectCount = 0;
+
+    function scanFrame() {
+      if (!scannerRunning) return;
+      detector.detect(video).then(function (barcodes) {
+        if (!scannerRunning) return;
+        for (var bc of barcodes) {
+          if (!validateBarcode(bc.rawValue)) continue;
+          if (bc.rawValue === lastDetected) { detectCount++; } else { lastDetected = bc.rawValue; detectCount = 1; }
+          if (detectCount >= 2) { onBarcodeDetected(bc.rawValue); return; }
+        }
+        scannerAnimFrame = requestAnimationFrame(scanFrame);
+      }).catch(function () { if (scannerRunning) scannerAnimFrame = requestAnimationFrame(scanFrame); });
+    }
+    scannerAnimFrame = requestAnimationFrame(scanFrame);
   }
 
-  // initial refresh
-  await refresh();
+  async function scanWithZbar(video) {
+    if (typeof zbarWasm === 'undefined' || !zbarWasm.scanImageData) {
+      var statusEl = document.createElement('p');
+      statusEl.textContent = 'Barcode library not available.';
+      statusEl.style.cssText = 'color: #dc2626; text-align: center; padding: 8px;';
+      scannerArea.appendChild(statusEl);
+      return;
+    }
 
+    var canvas = document.createElement('canvas');
+    var ctx = canvas.getContext('2d', { willReadFrequently: true });
+    var lastDetected = '';
+    var detectCount = 0;
+    var scanning = false;
+    var cropConfigs = [
+      { x: 0, y: 0, w: 1, h: 1 },
+      { x: 0.1, y: 0.25, w: 0.8, h: 0.5 },
+      { x: 0.2, y: 0.35, w: 0.6, h: 0.3 }
+    ];
+    var cropIdx = 0;
+
+    async function scanFrame() {
+      if (!scannerRunning || !video.videoWidth) {
+        if (scannerRunning) scannerAnimFrame = requestAnimationFrame(scanFrame);
+        return;
+      }
+      if (scanning) {
+        scannerAnimFrame = requestAnimationFrame(scanFrame);
+        return;
+      }
+      scanning = true;
+      var vw = video.videoWidth;
+      var vh = video.videoHeight;
+      var crop = cropConfigs[cropIdx % cropConfigs.length];
+      cropIdx++;
+      var sx = Math.floor(vw * crop.x);
+      var sy = Math.floor(vh * crop.y);
+      var sw = Math.floor(vw * crop.w);
+      var sh = Math.floor(vh * crop.h);
+      canvas.width = sw;
+      canvas.height = sh;
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+      try {
+        var imageData = ctx.getImageData(0, 0, sw, sh);
+        var results = await zbarWasm.scanImageData(imageData);
+        if (results && results.length > 0) {
+          for (var i = 0; i < results.length; i++) {
+            var sym = results[i];
+            var code = sym.decode ? sym.decode() : (sym.data ? new TextDecoder().decode(new Uint8Array(sym.data)) : '');
+            if (!code) continue;
+            if (!validateBarcode(code)) continue;
+            if (code === lastDetected) { detectCount++; } else { lastDetected = code; detectCount = 1; }
+            if (detectCount >= 2) { onBarcodeDetected(code); scanning = false; return; }
+          }
+        }
+      } catch (e) { /* continue scanning */ }
+      scanning = false;
+      if (scannerRunning) scannerAnimFrame = requestAnimationFrame(scanFrame);
+    }
+    scannerAnimFrame = requestAnimationFrame(scanFrame);
+  }
+
+  function onBarcodeDetected(code) {
+    stopScanner();
+    scannerModal.classList.add('hidden');
+    showModal({ isbn: code, title: '', authors: [], location: '' });
+    isbnEl.value = code;
+    isbnEl.dispatchEvent(new Event('input'));
+    if (settings.autoFetchMetadata) {
+      fetchMetaBtn.click();
+    }
+  }
+
+  function stopScanner() {
+    scannerRunning = false;
+    if (scannerAnimFrame) { cancelAnimationFrame(scannerAnimFrame); scannerAnimFrame = null; }
+    if (scannerStream) { scannerStream.getTracks().forEach(function (t) { t.stop(); }); scannerStream = null; }
+    var video = scannerArea.querySelector('video');
+    if (video) { video.srcObject = null; }
+    scannerArea.innerHTML = '';
+  }
+
+  // --- Keyboard shortcuts ---
+  function isAnyModalOpen() {
+    return !modal.classList.contains('hidden') ||
+           !detailModal.classList.contains('hidden') ||
+           !settingsModal.classList.contains('hidden') ||
+           !scannerModal.classList.contains('hidden') ||
+           !importPreviewModal.classList.contains('hidden');
+  }
+
+  function highlightFocused(filtered) {
+    document.querySelectorAll('.card.focused, .data-table tbody tr.focused').forEach(function (el) {
+      el.classList.remove('focused');
+    });
+    if (focusedIndex < 0 || focusedIndex >= filtered.length) return;
+    var book = filtered[focusedIndex];
+    var card = galleryEl.querySelector('[data-id="' + book.id + '"]');
+    if (card) { card.classList.add('focused'); card.scrollIntoView({ block: 'nearest' }); }
+    var row = tableEl.querySelector('[data-id="' + book.id + '"]');
+    if (row) { row.classList.add('focused'); row.scrollIntoView({ block: 'nearest' }); }
+  }
+
+  document.addEventListener('keydown', function (e) {
+    var tag = (document.activeElement || {}).tagName || '';
+    var isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+    // Escape: close modals or clear selection
+    if (e.key === 'Escape') {
+      if (!scannerModal.classList.contains('hidden')) { stopScanner(); scannerModal.classList.add('hidden'); e.preventDefault(); return; }
+      if (!modal.classList.contains('hidden')) { hideModal(); e.preventDefault(); return; }
+      if (!detailModal.classList.contains('hidden')) { detailModal.classList.add('hidden'); e.preventDefault(); return; }
+      if (!settingsModal.classList.contains('hidden')) { settingsCloseBtn.click(); e.preventDefault(); return; }
+      if (!importPreviewModal.classList.contains('hidden')) { importPreviewModal.classList.add('hidden'); e.preventDefault(); return; }
+      if (selectedIds.size > 0) { selectedIds.clear(); updateSelectionBar(); e.preventDefault(); return; }
+      // Blur active element
+      if (isInput) { document.activeElement.blur(); e.preventDefault(); return; }
+    }
+
+    // Ctrl+Enter in modal: save
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !modal.classList.contains('hidden')) {
+      e.preventDefault(); saveBtn.click(); return;
+    }
+
+    // Don't handle other shortcuts when typing or in modals
+    if (isInput) return;
+    if (isAnyModalOpen()) return;
+
+    var filtered = getFilteredBooks();
+
+    // N: new book
+    if (e.key === 'n' || e.key === 'N') {
+      if (!e.ctrlKey && !e.metaKey) { e.preventDefault(); addBtn.click(); return; }
+    }
+
+    // S: scan barcode
+    if (e.key === 's' || e.key === 'S') {
+      if (!e.ctrlKey && !e.metaKey) { e.preventDefault(); scanBtn.click(); return; }
+    }
+
+    // Ctrl+A / Cmd+A: select all
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+      e.preventDefault();
+      filtered.forEach(function (b) { selectedIds.add(b.id); });
+      updateSelectionBar();
+      return;
+    }
+
+    // Delete: delete selected
+    if (e.key === 'Delete') {
+      if (selectedIds.size > 0) { e.preventDefault(); selDelete.click(); return; }
+    }
+
+    // / or F: focus search
+    if (e.key === '/' || e.key === 'f' || e.key === 'F') {
+      if (!e.ctrlKey && !e.metaKey) { e.preventDefault(); searchEl.focus(); return; }
+    }
+
+    // Arrow keys: navigate books
+    if (!filtered.length) return;
+
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'j') {
+      e.preventDefault();
+      focusedIndex = Math.min(focusedIndex + 1, filtered.length - 1);
+      highlightFocused(filtered);
+      return;
+    }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'k') {
+      e.preventDefault();
+      focusedIndex = Math.max(focusedIndex - 1, 0);
+      highlightFocused(filtered);
+      return;
+    }
+
+    // Enter: open detail of focused book
+    if (e.key === 'Enter' && focusedIndex >= 0 && focusedIndex < filtered.length) {
+      e.preventDefault();
+      showDetail(filtered[focusedIndex]);
+      return;
+    }
+
+    // Space: toggle select focused book
+    if (e.key === ' ' && focusedIndex >= 0 && focusedIndex < filtered.length) {
+      e.preventDefault();
+      toggleSelect(filtered[focusedIndex].id);
+      return;
+    }
+  });
+
+  // initial load
+  await refresh();
 })();

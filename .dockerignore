@@ -1,3 +1,16 @@
 node_modules
 npm-debug.log
 data
+.git
+.github
+.claude
+.env
+.env.*
+*.md
+!README.md
+test
+filetree
+cypress
+cypress.config.js
+coverage
+.nyc_output

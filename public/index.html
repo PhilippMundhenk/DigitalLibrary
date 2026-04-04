@@ -11,51 +11,156 @@
     <header>
       <h1>Digital Library</h1>
       <div class="controls">
-        <input id="search" placeholder="Search all fields..." />
+        <input id="search" placeholder="Search books..." />
+        <select id="locationFilter">
+          <option value="">All locations</option>
+        </select>
         <select id="view">
           <option value="gallery">Gallery</option>
           <option value="table">Table</option>
         </select>
-        <button id="addBtn">Add Book</button>
-        <button id="scanBtn">Scan ISBN (Camera)</button>
-        <input id="importFile" type="file" />
-        <button id="previewImportBtn">Preview Import</button>
+        <button id="addBtn" class="btn btn-primary">+ Add Book</button>
+        <button id="scanBtn" class="btn btn-secondary">Scan ISBN</button>
+        <label class="btn btn-secondary import-label">
+          Import
+          <input id="importFile" type="file" accept=".csv,.json,.txt" />
+        </label>
+        <button id="settingsBtn" class="btn">Settings</button>
       </div>
     </header>
 
+    <!-- Multi-select toolbar -->
+    <div id="selectionBar" class="selection-bar hidden">
+      <button id="selAll" class="btn btn-secondary">Select All</button>
+      <span id="selectionCount">0 selected</span>
+      <button id="selSetLocation" class="btn btn-secondary">Set Location</button>
+      <button id="selDelete" class="btn btn-danger">Delete Selected</button>
+      <button id="selClear" class="btn">Clear Selection</button>
+    </div>
+
     <main>
-      <div id="gallery" class="view"></div>
-      <div id="table" class="view hidden"></div>
+      <div id="empty" class="empty-state hidden">
+        <p>No books yet. Add your first book to get started.</p>
+      </div>
+      <div id="gallery" class="gallery"></div>
+      <div id="table" class="table-wrap hidden"></div>
     </main>
 
     <!-- Modal for add/edit -->
     <div id="modal" class="modal hidden">
-      <div class="modal-content">
-        <h3 id="modal-title">Add / Edit Book</h3>
-        <label>ISBN <input id="isbn" /></label>
-        <label>Title <input id="title" /></label>
-        <label>Authors <input id="authors" placeholder="comma-separated" /></label>
-        <label>Location <input id="location" /></label>
-        <label>Cover URL <input id="cover" /></label>
-        <label>Notes <textarea id="notes"></textarea></label>
-        <div id="modal-error" style="color: #b22; display:none; margin-top:6px;"></div>
+      <div class="modal-content modal-wide">
+        <h3 id="modal-title">Add Book</h3>
+        <div class="modal-body-layout">
+          <div class="modal-preview">
+            <img id="modal-cover-preview" src="" alt="Cover preview" />
+            <div id="modal-preview-info">
+              <p id="modal-preview-title" class="preview-title"></p>
+              <p id="modal-preview-authors" class="preview-authors"></p>
+              <p id="modal-preview-isbn" class="preview-isbn"></p>
+            </div>
+          </div>
+          <div class="modal-fields">
+            <label>ISBN <input id="isbn" placeholder="e.g. 978-0-13-468599-1" />
+              <span id="isbn-status" class="isbn-status"></span>
+            </label>
+            <label>Title <input id="title" /></label>
+            <label>Authors <input id="authors" placeholder="comma-separated" /></label>
+            <label>Location <input id="location" placeholder="e.g. shelf-A3" /></label>
+            <label>Cover
+              <div class="cover-input-row">
+                <label class="btn btn-secondary cover-upload-label">
+                  Upload Cover
+                  <input id="coverUpload" type="file" accept="image/*" />
+                </label>
+                <span id="coverStatus" style="font-size:0.8rem;color:#64748b;"></span>
+              </div>
+            </label>
+            <input id="cover" type="hidden" />
+            <label>Notes <textarea id="notes" rows="3"></textarea></label>
+            <div id="customFieldsArea"></div>
+          </div>
+        </div>
+        <div id="modal-error" class="form-error hidden"></div>
         <div class="modal-actions">
-          <button id="fetchMeta">Fetch Metadata (ISBN)</button>
-          <button id="saveBtn">Save</button>
-          <button id="cancelBtn">Cancel</button>
+          <button id="fetchMeta" class="btn btn-secondary">Fetch Metadata</button>
+          <button id="saveBtn" class="btn btn-primary">Save</button>
+          <button id="cancelBtn" class="btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Book detail modal -->
+    <div id="detail" class="modal hidden">
+      <div class="modal-content detail-content">
+        <div class="detail-layout">
+          <img id="detail-cover" src="" alt="" />
+          <div class="detail-info">
+            <h2 id="detail-title"></h2>
+            <p id="detail-authors" class="detail-authors"></p>
+            <dl class="detail-fields">
+              <dt>ISBN</dt><dd id="detail-isbn"></dd>
+              <dt>Location</dt><dd id="detail-location"></dd>
+              <dt>Publisher</dt><dd id="detail-publisher"></dd>
+              <dt>Published</dt><dd id="detail-publishDate"></dd>
+              <dt>Pages</dt><dd id="detail-pages"></dd>
+              <dt>Notes</dt><dd id="detail-notes"></dd>
+              <dt>Added</dt><dd id="detail-added"></dd>
+            </dl>
+            <dl id="detail-custom-fields" class="detail-fields"></dl>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button id="detailEditBtn" class="btn btn-primary">Edit</button>
+          <button id="detailDeleteBtn" class="btn btn-danger">Delete</button>
+          <button id="detailCloseBtn" class="btn">Close</button>
         </div>
       </div>
     </div>
 
     <!-- Import preview modal -->
     <div id="importPreview" class="modal hidden">
-      <div class="modal-content">
+      <div class="modal-content" style="max-width:860px;">
         <h3>Import Preview</h3>
+        <div class="import-controls">
+          <label>Location for all: <input id="importLocation" placeholder="e.g. shelf-A1" /></label>
+          <button id="fetchAllMetaBtn" class="btn btn-secondary">Fetch All Metadata</button>
+          <span id="fetchAllStatus" class="fetch-status"></span>
+        </div>
         <div id="previewArea" style="max-height: 50vh; overflow:auto;"></div>
-        <div id="importErrors" style="color:#b22;"></div>
+        <div id="importProgress" class="import-progress hidden">
+          <div class="import-progress-bar"><div id="importProgressFill" class="import-progress-fill"></div></div>
+          <span id="importProgressText">0 / 0</span>
+        </div>
+        <div id="importErrors" class="form-error"></div>
         <div class="modal-actions">
-          <button id="confirmImportBtn">Confirm Import</button>
-          <button id="cancelImportBtn">Cancel</button>
+          <button id="confirmImportBtn" class="btn btn-primary">Confirm Import</button>
+          <button id="cancelImportBtn" class="btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings modal -->
+    <div id="settingsModal" class="modal hidden">
+      <div class="modal-content" style="max-width: 600px;">
+        <h3>Settings</h3>
+        <label class="setting-row">
+          <input type="checkbox" id="settAutoFetch" checked />
+          Automatically fetch metadata when ISBN is entered or scanned
+        </label>
+        <hr style="margin: 16px 0; border: none; border-top: 1px solid #e2e8f0;" />
+        <h4 style="margin-bottom: 8px; color: #64748b; font-size: 0.9rem;">Custom Fields</h4>
+        <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 8px;">Add custom fields that appear on every book.</p>
+        <div id="customFieldsList"></div>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <input id="newFieldName" placeholder="Field name (e.g. Genre)" style="flex:1; padding:6px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.85rem;" />
+          <button id="addFieldBtn" class="btn btn-secondary">Add Field</button>
+        </div>
+        <hr style="margin: 16px 0; border: none; border-top: 1px solid #e2e8f0;" />
+        <h4 style="margin-bottom: 8px; color: #64748b; font-size: 0.9rem;">Danger Zone</h4>
+        <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 12px;">Clear all books and reset the library to a fresh state.</p>
+        <button id="clearLibraryBtn" class="btn btn-danger">Clear Library</button>
+        <div class="modal-actions">
+          <button id="settingsCloseBtn" class="btn">Close</button>
         </div>
       </div>
     </div>
@@ -63,22 +168,18 @@
     <!-- Scanner -->
     <div id="scanner" class="modal hidden">
       <div class="modal-content">
-        <h3>Scan barcode</h3>
+        <h3>Scan Barcode</h3>
         <div id="scanner-area"></div>
         <div class="modal-actions">
-          <button id="closeScanner">Close</button>
+          <button id="closeScanner" class="btn">Close</button>
         </div>
       </div>
     </div>
-
-    <footer>
-      <small>All data stored as JSON files on server.</small>
-    </footer>
   </div>
 
-  <!-- Libraries -->
-  <script src="https://unpkg.com/quagga/dist/quagga.min.js"></script>
-  <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
+  <!-- Libraries (vendored locally) -->
+  <script src="/vendor/papaparse.min.js"></script>
+  <script src="/vendor/zbar-wasm.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

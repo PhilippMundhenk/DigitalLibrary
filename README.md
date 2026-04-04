@@ -1,60 +1,178 @@
 # Digital Library
 
-A simple web service to manage a digital book library. Book records are stored as individual JSON files on disk (no database).
+A self-hosted web application to manage a personal book library. Stores all data (books, covers, settings) in a single JSON file — no database required.
 
-Features
-- Add books by author + title or by ISBN (auto-completes metadata from OpenLibrary/Google Books).
-- Scan barcodes via smartphone camera (QuaggaJS).
-- Batch import CSV or JSON files.
-- Each book record has a location identifier.
-- Edit any field on a book.
-- Gallery view (covers), searchable across all fields, and filter by field (author, title, location).
-- Table view showing configurable columns.
-- All data stored as JSON files in `data/books/`.
-- Deployable as Docker container.
-- GitHub Actions workflow provided to build and push image to GitHub Container Registry (GHCR).
+## Features
 
-Run locally
-1. Install dependencies:
-   npm install
+- **Add books** by title/author or ISBN with automatic metadata fetching
+- **Barcode scanning** via smartphone camera (native BarcodeDetector API + zbar-wasm fallback)
+- **Multi-source metadata** from OpenLibrary, Google Books, and Deutsche Nationalbibliothek (DNB)
+- **Cover images** stored as base64 — upload your own or auto-fetch from metadata sources
+- **Batch import** from CSV, JSON, or plain text (one ISBN per line)
+- **Multi-select operations** — select all, bulk delete, bulk set location
+- **Gallery and table views** with search across all fields and location filtering
+- **Custom fields** — add arbitrary fields (e.g., Genre, Rating) via settings
+- **Keyboard shortcuts** for power users (see below)
+- **ISBN-10 auto-fix** — automatically corrects check digits for scanned barcodes
+- **Single JSON file storage** — easy to backup, version, and migrate
 
-2. Start:
-   npm start
+## Quick Start
 
-3. Open http://localhost:3000
+```bash
+# Install dependencies
+npm install
 
-API (HTTP)
-- GET /api/books                -> list books (query params: q=free-text, field=author|title|location)
-- GET /api/books/:id            -> get book by id
-- POST /api/books               -> create book (body JSON: { title, author, isbn, location, ... })
-- PUT /api/books/:id            -> update book
-- DELETE /api/books/:id         -> delete book
-- POST /api/import              -> multipart upload (file field `file`) supports CSV or JSON
+# Start the server
+npm start
 
-Data format
-Each book is saved as a JSON file under data/books/<uuid>.json. Example fields:
+# Open http://localhost:3000
+```
+
+## Docker
+
+```bash
+# Build and run
+docker build -t digital-library .
+docker run -p 3000:3000 -v library-data:/app/data digital-library
+
+# Or use docker-compose
+docker compose up -d
+```
+
+The Docker image is also published to GitHub Container Registry on every push to main and on tagged releases:
+
+```bash
+docker pull ghcr.io/<owner>/digital-library:latest
+docker pull ghcr.io/<owner>/digital-library:v1.0.0  # tagged release
+```
+
+## API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/books` | List books (query: `?q=search&field=title`) |
+| `GET` | `/api/books/:id` | Get book by ID |
+| `POST` | `/api/books` | Create book |
+| `PUT` | `/api/books/:id` | Update book |
+| `DELETE` | `/api/books/:id` | Delete book |
+| `GET` | `/api/locations` | List distinct locations |
+| `POST` | `/api/books/bulk-delete` | Delete multiple books `{ ids: [...] }` |
+| `PUT` | `/api/books/bulk-update` | Update multiple books `{ ids: [...], update: {...} }` |
+| `GET` | `/api/metadata/:isbn` | Fetch metadata for ISBN |
+| `POST` | `/api/import` | Import file (multipart, field: `file`) |
+| `POST` | `/api/upload-cover` | Upload cover image (multipart, field: `cover`) |
+| `GET` | `/api/settings` | Get settings |
+| `PUT` | `/api/settings` | Update settings |
+| `POST` | `/api/clear` | Clear entire library |
+
+## Data Format
+
+All data is stored in `data/library.json`:
+
+```json
 {
-  "id": "...",
-  "title": "...",
-  "authors": ["..."],
-  "isbn": "978...",
-  "cover": "https://...",
-  "location": "shelf-A1",
-  "notes": "...",
-  "created_at": "...",
-  "updated_at": "..."
+  "settings": {
+    "autoFetchMetadata": true,
+    "customFields": [
+      { "name": "genre", "label": "Genre" }
+    ]
+  },
+  "books": [
+    {
+      "id": "uuid",
+      "title": "Book Title",
+      "authors": ["Author Name"],
+      "isbn": "9780134685991",
+      "cover": "data:image/jpeg;base64,...",
+      "location": "shelf-A1",
+      "notes": "",
+      "publisher": "Publisher",
+      "publishDate": "2020",
+      "pages": 350,
+      "created_at": "2024-01-01T00:00:00.000Z",
+      "updated_at": "2024-01-01T00:00:00.000Z"
+    }
+  ]
 }
+```
 
-Docker
-Build:
-  docker build -t digital-library:latest .
+## Keyboard Shortcuts
 
-Run:
-  docker run -p 3000:3000 -v $(pwd)/data:/usr/src/app/data digital-library:latest
+| Key | Action |
+|-----|--------|
+| `N` | Add new book |
+| `S` | Open barcode scanner |
+| `/` or `F` | Focus search box |
+| `Ctrl+A` | Select all visible books |
+| `Arrow keys` / `J`/`K` | Navigate through books |
+| `Enter` | Open detail of focused book |
+| `Space` | Toggle select focused book |
+| `Delete` | Delete selected books |
+| `Escape` | Close modal / clear selection |
+| `Ctrl+Enter` | Save book (in modal) |
 
-GitHub Actions
-See .github/workflows/docker-publish.yml for an example workflow that builds and pushes to GHCR.
+## Environment Variables
 
-Notes
-- No authentication included by design.
-- The app uses OpenLibrary first and falls back to Google Books when fetching metadata.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3000` | Server port |
+| `DATA_DIR` | `./data` | Directory for library.json storage |
+| `ALLOWED_ORIGINS` | `*` (dev) | Comma-separated list of allowed CORS origins |
+| `NODE_ENV` | `development` | Set to `production` for production mode |
+
+## Development
+
+```bash
+# Run with auto-reload
+npm run dev
+
+# Run unit and API tests
+npm test
+
+# Run end-to-end tests
+npm run ci:e2e
+```
+
+## Testing
+
+- **Unit tests**: ISBN validation, metadata fetching, storage operations
+- **API tests**: All REST endpoints, import, cover upload, bulk operations
+- **E2E tests**: Cypress tests for full user workflows
+
+```bash
+npm test           # Jest unit + API tests
+npm run ci:e2e     # Cypress end-to-end tests
+```
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for the full security audit report.
+
+Key security features:
+- Input sanitization with field whitelisting and prototype pollution prevention
+- File upload validation (type, size)
+- Rate limiting on API and metadata endpoints
+- Security headers via Helmet.js (CSP, HSTS, X-Frame-Options, etc.)
+- Strict ISBN validation to prevent SSRF
+- Non-root Docker user
+
+## CI/CD
+
+GitHub Actions workflows:
+- **CI** (`.github/workflows/ci.yml`): Runs unit tests on Node 18 & 20, then e2e tests
+- **Docker** (`.github/workflows/docker-publish.yml`): Builds and pushes to GHCR on push to main and on version tags
+
+### Creating a Release
+
+Tag a version to trigger a tagged Docker image:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+This creates Docker images tagged `v1.0.0`, `1.0`, `1`, and `latest`.
+
+## License
+
+[MIT](LICENSE)
