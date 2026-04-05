@@ -30,8 +30,11 @@ describe('API', () => {
 
   test('list books', async () => {
     const res = await request(server).get('/api/books').expect(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body.length).toBeGreaterThanOrEqual(1);
+    expect(res.body).toHaveProperty('books');
+    expect(res.body).toHaveProperty('total');
+    expect(Array.isArray(res.body.books)).toBe(true);
+    expect(res.body.books.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.total).toBeGreaterThanOrEqual(1);
   });
 
   test('update book', async () => {
@@ -66,17 +69,17 @@ describe('API', () => {
     await request(server).post('/api/books')
       .send({ title: 'Unique Search Term XYZ', authors: ['SearchAuth'] }).expect(201);
     const res = await request(server).get('/api/books?q=Unique+Search+Term+XYZ').expect(200);
-    expect(res.body.length).toBe(1);
-    expect(res.body[0].title).toBe('Unique Search Term XYZ');
+    expect(res.body.books.length).toBe(1);
+    expect(res.body.books[0].title).toBe('Unique Search Term XYZ');
   });
 
   test('search books by field', async () => {
     await request(server).post('/api/books')
       .send({ title: 'Field Test', authors: ['FieldAuthor99'] }).expect(201);
     const res = await request(server).get('/api/books?q=FieldAuthor99&field=authors').expect(200);
-    expect(res.body.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.books.length).toBeGreaterThanOrEqual(1);
     const res2 = await request(server).get('/api/books?q=FieldAuthor99&field=title').expect(200);
-    expect(res2.body.length).toBe(0);
+    expect(res2.body.books.length).toBe(0);
   });
 
   test('locations endpoint returns distinct locations', async () => {
@@ -340,14 +343,14 @@ describe('API', () => {
     await request(server).post('/api/books')
       .send({ title: 'UPPERCASE TITLE 99' }).expect(201);
     const res = await request(server).get('/api/books?q=uppercase+title+99').expect(200);
-    expect(res.body.length).toBe(1);
+    expect(res.body.books.length).toBe(1);
   });
 
   test('search by notes field', async () => {
     await request(server).post('/api/books')
       .send({ title: 'Notes Test', notes: 'UniqueNoteValue42' }).expect(201);
     const res = await request(server).get('/api/books?q=UniqueNoteValue42').expect(200);
-    expect(res.body.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.books.length).toBeGreaterThanOrEqual(1);
   });
 
   // --- Metadata endpoint ---
@@ -395,9 +398,9 @@ describe('API', () => {
   test('by-isbn endpoint finds books by ISBN', async () => {
     await request(server).post('/api/clear').expect(200);
     await request(server).post('/api/books')
-      .send({ title: 'ISBN Dup 1', isbn: '9780134685991' }).expect(201);
+      .send({ title: 'ISBN Dup 1', authors: ['A'], isbn: '9780134685991' }).expect(201);
     await request(server).post('/api/books')
-      .send({ title: 'ISBN Dup 2', isbn: '9780134685991' }).expect(201);
+      .send({ title: 'ISBN Dup 2', authors: ['B'], isbn: '9780134685991' }).expect(201);
     const res = await request(server).get('/api/books/by-isbn/9780134685991').expect(200);
     expect(res.body.length).toBe(2);
     expect(res.body[0]).toHaveProperty('title');
@@ -462,12 +465,93 @@ describe('API', () => {
   });
 
   // --- Clear library ---
+  // --- Pagination ---
+  test('pagination with limit and offset', async () => {
+    await request(server).post('/api/clear').expect(200);
+    for (let i = 0; i < 5; i++) {
+      await request(server).post('/api/books').send({ title: `Page Book ${i}` }).expect(201);
+    }
+    const page1 = await request(server).get('/api/books?limit=2&offset=0').expect(200);
+    expect(page1.body.books.length).toBe(2);
+    expect(page1.body.total).toBe(5);
+    const page2 = await request(server).get('/api/books?limit=2&offset=2').expect(200);
+    expect(page2.body.books.length).toBe(2);
+    const page3 = await request(server).get('/api/books?limit=2&offset=4').expect(200);
+    expect(page3.body.books.length).toBe(1);
+  });
+
+  // --- Cover endpoint ---
+  test('cover endpoint returns cover data', async () => {
+    const create = await request(server).post('/api/books')
+      .send({ title: 'Cover Test', cover: 'data:image/png;base64,ABC' }).expect(201);
+    const res = await request(server).get(`/api/books/${create.body.id}/cover`).expect(200);
+    expect(res.body.cover).toBe('data:image/png;base64,ABC');
+  });
+
+  test('cover endpoint returns null for no cover', async () => {
+    const create = await request(server).post('/api/books')
+      .send({ title: 'No Cover Test' }).expect(201);
+    const res = await request(server).get(`/api/books/${create.body.id}/cover`).expect(200);
+    expect(res.body.cover).toBeNull();
+  });
+
+  // --- Batch create ---
+  test('batch create books', async () => {
+    const res = await request(server).post('/api/books/batch')
+      .send({ entries: [
+        { isbn: '1111111111', title: 'Batch 1' },
+        { isbn: '2222222222', title: 'Batch 2' }
+      ]}).expect(201);
+    expect(res.body.created).toBe(2);
+    expect(res.body.books.length).toBe(2);
+  });
+
+  test('batch create rejects non-array', async () => {
+    await request(server).post('/api/books/batch')
+      .send({ entries: 'not-array' }).expect(400);
+  });
+
+  // --- Changelog ---
+  test('changelog records book creation', async () => {
+    await request(server).post('/api/clear').expect(200);
+    await request(server).post('/api/books')
+      .send({ title: 'Changelog Test' }).expect(201);
+    // Give changelog time to write
+    await new Promise(r => setTimeout(r, 50));
+    const res = await request(server).get('/api/changelog').expect(200);
+    expect(res.body).toHaveProperty('entries');
+    expect(res.body.entries.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.entries[0].action).toBe('created');
+    expect(res.body.entries[0].title).toBe('Changelog Test');
+  });
+
+  test('changelog records book deletion', async () => {
+    const create = await request(server).post('/api/books')
+      .send({ title: 'Delete Log Test' }).expect(201);
+    await request(server).delete(`/api/books/${create.body.id}`).expect(200);
+    await new Promise(r => setTimeout(r, 50));
+    const res = await request(server).get('/api/changelog').expect(200);
+    const delEntry = res.body.entries.find(e => e.action === 'deleted' && e.title === 'Delete Log Test');
+    expect(delEntry).toBeTruthy();
+  });
+
+  // --- Index excludes cover data ---
+  test('list books does not include cover data', async () => {
+    await request(server).post('/api/clear').expect(200);
+    await request(server).post('/api/books')
+      .send({ title: 'Index Test', cover: 'data:image/png;base64,ABCDEF' }).expect(201);
+    const res = await request(server).get('/api/books').expect(200);
+    expect(res.body.books[0].cover).toBeUndefined();
+    expect(res.body.books[0].title).toBe('Index Test');
+  });
+
+  // --- Clear library ---
   test('clear library', async () => {
     await request(server).post('/api/books').send({ title: 'ClearTest' }).expect(201);
     const before = await request(server).get('/api/books').expect(200);
-    expect(before.body.length).toBeGreaterThan(0);
+    expect(before.body.books.length).toBeGreaterThan(0);
     await request(server).post('/api/clear').expect(200);
     const after = await request(server).get('/api/books').expect(200);
-    expect(after.body.length).toBe(0);
+    expect(after.body.books.length).toBe(0);
   });
 });

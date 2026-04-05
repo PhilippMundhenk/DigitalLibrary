@@ -178,10 +178,12 @@ app.put('/api/settings', async (req, res) => {
 });
 
 // --- Books ---
+// GET /api/books returns index data (no covers) — fast.
+// Supports ?q=search, ?field=title, ?limit=N, ?offset=M
 app.get('/api/books', async (req, res) => {
   try {
-    const { q, field } = req.query;
-    let items = await storage.listBooks();
+    const { q, field, limit, offset } = req.query;
+    let items = await storage.listBooks(); // returns from in-memory index (no covers)
     if (q) {
       const ql = String(q).toLowerCase().slice(0, 200);
       const searchField = typeof field === 'string' ? field : null;
@@ -196,7 +198,16 @@ app.get('/api/books', async (req, res) => {
         );
       });
     }
-    res.json(items);
+    const total = items.length;
+    // Pagination
+    const off = Math.max(0, parseInt(offset, 10) || 0);
+    const lim = parseInt(limit, 10) || 0;
+    if (lim > 0) {
+      items = items.slice(off, off + lim);
+    } else if (off > 0) {
+      items = items.slice(off);
+    }
+    res.json({ books: items, total });
   } catch (err) {
     console.error('GET /api/books error:', err);
     res.status(500).json({ error: 'Failed to list books' });
@@ -221,6 +232,9 @@ app.post('/api/books/bulk-delete', async (req, res) => {
     if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids array required' });
     const safeIds = ids.filter(id => typeof id === 'string').slice(0, 1000);
     const deleted = await storage.deleteBooks(safeIds);
+    if (deleted > 0) {
+      storage.appendChangelog({ timestamp: new Date().toISOString(), action: 'bulk-deleted', count: deleted, ids: safeIds }).catch(() => {});
+    }
     res.json({ deleted });
   } catch (err) {
     console.error('POST /api/books/bulk-delete error:', err);
@@ -244,6 +258,9 @@ app.put('/api/books/bulk-update', async (req, res) => {
       }
     }
     await storage.saveBooks(books);
+    if (books.length > 0) {
+      storage.appendChangelog({ timestamp: new Date().toISOString(), action: 'bulk-updated', count: books.length, ids: safeIds, fields: Object.keys(safeUpdate) }).catch(() => {});
+    }
     res.json({ updated: books.length });
   } catch (err) {
     console.error('PUT /api/books/bulk-update error:', err);
@@ -275,6 +292,17 @@ app.get('/api/books/:id', async (req, res) => {
   }
 });
 
+// Cover-only endpoint for lazy loading
+app.get('/api/books/:id/cover', async (req, res) => {
+  try {
+    const cover = await storage.getBookCover(req.params.id);
+    if (!cover) return res.json({ cover: null });
+    res.json({ cover });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get cover' });
+  }
+});
+
 app.post('/api/books', async (req, res) => {
   try {
     const settings = await storage.getSettings();
@@ -294,10 +322,39 @@ app.post('/api/books', async (req, res) => {
     const now = new Date().toISOString();
     const book = { id, created_at: now, updated_at: now, ...payload };
     await storage.saveBook(book);
+    storage.appendChangelog({ timestamp: now, action: 'created', bookId: id, title: book.title || book.isbn || id }).catch(() => {});
     res.status(201).json(book);
   } catch (err) {
     console.error('POST /api/books error:', err);
     res.status(500).json({ error: 'Failed to create book' });
+  }
+});
+
+// Batch create for barcode scanning — creates multiple books quickly
+app.post('/api/books/batch', async (req, res) => {
+  try {
+    const { entries } = req.body; // [{isbn, title?, authors?}, ...]
+    if (!Array.isArray(entries)) return res.status(400).json({ error: 'entries array required' });
+    const settings = await storage.getSettings();
+    const results = [];
+    const logEntries = [];
+    for (const entry of entries.slice(0, 100)) {
+      const payload = sanitizeBookPayload(entry, settings.customFields);
+      if (!payload.isbn && !payload.title) continue;
+      const id = uuidv4();
+      const now = new Date().toISOString();
+      const book = { id, created_at: now, updated_at: now, ...payload };
+      results.push(book);
+      logEntries.push({ timestamp: now, action: 'created', bookId: id, title: book.title || book.isbn || id, via: 'batch-scan' });
+    }
+    if (results.length > 0) {
+      await storage.saveBooks(results);
+      storage.appendChangelog(logEntries).catch(() => {});
+    }
+    res.status(201).json({ created: results.length, books: results });
+  } catch (err) {
+    console.error('POST /api/books/batch error:', err);
+    res.status(500).json({ error: 'Batch create failed' });
   }
 });
 
@@ -307,8 +364,10 @@ app.put('/api/books/:id', async (req, res) => {
     if (!existing) return res.status(404).json({ error: 'Not found' });
     const settings = await storage.getSettings();
     const safeBody = sanitizeBookPayload(req.body, settings.customFields);
-    const updated = { ...existing, ...safeBody, updated_at: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const updated = { ...existing, ...safeBody, updated_at: now };
     await storage.saveBook(updated);
+    storage.appendChangelog({ timestamp: now, action: 'updated', bookId: req.params.id, title: updated.title || updated.isbn || req.params.id }).catch(() => {});
     res.json(updated);
   } catch (err) {
     console.error('PUT /api/books/:id error:', err);
@@ -318,7 +377,12 @@ app.put('/api/books/:id', async (req, res) => {
 
 app.delete('/api/books/:id', async (req, res) => {
   try {
+    // Read title before deleting for changelog
+    const existing = await storage.readBook(req.params.id);
     const ok = await storage.deleteBook(req.params.id);
+    if (ok) {
+      storage.appendChangelog({ timestamp: new Date().toISOString(), action: 'deleted', bookId: req.params.id, title: (existing && existing.title) || req.params.id }).catch(() => {});
+    }
     res.json({ ok });
   } catch (err) {
     console.error('DELETE /api/books/:id error:', err);
@@ -379,6 +443,7 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'No valid entries to import' });
     }
     await storage.saveBooks(results);
+    storage.appendChangelog({ timestamp: new Date().toISOString(), action: 'imported', count: results.length }).catch(() => {});
     res.json({ imported: results.length, books: results });
   } catch (err) {
     console.error('POST /api/import error:', err);
@@ -412,6 +477,18 @@ app.use((err, req, res, next) => {
     return res.status(400).json({ error: err.message });
   }
   next(err);
+});
+
+// --- Changelog ---
+app.get('/api/changelog', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    res.json(await storage.getChangelog(limit, offset));
+  } catch (err) {
+    console.error('GET /api/changelog error:', err);
+    res.status(500).json({ error: 'Failed to get changelog' });
+  }
 });
 
 // --- Clear library ---

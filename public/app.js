@@ -61,9 +61,17 @@
 
   // --- API ---
   var api = {
-    list: function (q, field) { return fetch('/api/books' + (q ? '?q=' + encodeURIComponent(q) + (field ? '&field=' + field : '') : '')).then(apiResponse); },
+    list: function (q, field) {
+      var url = '/api/books' + (q ? '?q=' + encodeURIComponent(q) + (field ? '&field=' + field : '') : '');
+      return fetch(url).then(apiResponse).then(function (r) {
+        // API returns {books:[], total:N} — extract books array
+        return Array.isArray(r) ? r : (r.books || []);
+      });
+    },
     get: function (id) { return fetch('/api/books/' + id).then(apiResponse); },
+    getCover: function (id) { return fetch('/api/books/' + id + '/cover').then(apiResponse); },
     create: function (b) { return fetch('/api/books', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(apiResponse); },
+    batchCreate: function (entries) { return fetch('/api/books/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entries: entries }) }).then(apiResponse); },
     update: function (id, b) { return fetch('/api/books/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(apiResponse); },
     del: function (id) { return fetch('/api/books/' + id, { method: 'DELETE' }).then(apiResponse); },
     bulkDelete: function (ids) { return fetch('/api/books/bulk-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids }) }).then(apiResponse); },
@@ -72,6 +80,7 @@
     getSettings: function () { return fetch('/api/settings').then(apiResponse); },
     saveSettings: function (s) { return fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s) }).then(apiResponse); },
     clearLibrary: function () { return fetch('/api/clear', { method: 'POST' }).then(apiResponse); },
+    getChangelog: function (limit, offset) { return fetch('/api/changelog?limit=' + (limit || 100) + '&offset=' + (offset || 0)).then(apiResponse); },
     importBooks: function (books) {
       var blob = new Blob([JSON.stringify(books)], { type: 'application/json' });
       var fd = new FormData();
@@ -84,6 +93,48 @@
       return fetch('/api/upload-cover', { method: 'POST', body: fd }).then(apiResponse);
     }
   };
+
+  // --- Lazy cover loading with IntersectionObserver ---
+  var coverObserver = null;
+  var coverCache = {}; // id -> cover data URI or null
+  if ('IntersectionObserver' in window) {
+    coverObserver = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        var img = entry.target;
+        var bookId = img.dataset.bookId;
+        if (!bookId || coverCache[bookId] !== undefined) return;
+        coverCache[bookId] = 'loading';
+        api.getCover(bookId).then(function (r) {
+          coverCache[bookId] = r.cover || null;
+          if (r.cover) {
+            img.src = r.cover;
+          }
+        }).catch(function () {
+          coverCache[bookId] = null;
+        });
+        coverObserver.unobserve(img);
+      });
+    }, { rootMargin: '200px' });
+  }
+
+  function setupLazyCover(img, bookId) {
+    if (!bookId) return;
+    if (coverCache[bookId] && coverCache[bookId] !== 'loading') {
+      img.src = coverCache[bookId];
+      return;
+    }
+    if (coverObserver) {
+      img.dataset.bookId = bookId;
+      coverObserver.observe(img);
+    } else {
+      // Fallback: load immediately
+      api.getCover(bookId).then(function (r) {
+        coverCache[bookId] = r.cover || null;
+        if (r.cover) img.src = r.cover;
+      }).catch(function () {});
+    }
+  }
 
   // --- Elements ---
   var searchEl = document.getElementById('search');
@@ -433,9 +484,9 @@
   addBtn.addEventListener('click', function () { showModal(null); });
 
   // --- Detail modal ---
-  function showDetail(book) {
+  async function showDetail(book) {
     currentDetailBook = book;
-    detailCover.src = coverSrc(book.cover);
+    detailCover.src = PLACEHOLDER;
     detailCover.onerror = onImgError;
     detailTitle.textContent = book.title || '(no title)';
     detailAuthors.textContent = (book.authors || []).join(', ') || 'Unknown author';
@@ -448,6 +499,15 @@
     detailAdded.textContent = book.created_at ? new Date(book.created_at).toLocaleDateString() : '-';
     renderCustomFieldsInDetail(book);
     detailModal.classList.remove('hidden');
+    // Load full book with cover
+    try {
+      var full = await api.get(book.id);
+      currentDetailBook = full;
+      if (full.cover) {
+        detailCover.src = full.cover;
+        coverCache[book.id] = full.cover;
+      }
+    } catch (e) { /* use index data */ }
   }
 
   detailCloseBtn.addEventListener('click', function () { detailModal.classList.add('hidden'); });
@@ -837,10 +897,11 @@
       })(b.id));
       div.appendChild(cb);
       var img = document.createElement('img');
-      img.src = coverSrc(b.cover);
+      img.src = PLACEHOLDER;
       img.alt = b.title || 'No title';
       img.loading = 'lazy';
       img.onerror = onImgError;
+      setupLazyCover(img, b.id);
       var body = document.createElement('div');
       body.className = 'card-body';
       var h4 = document.createElement('h4'); h4.textContent = b.title || '(no title)';
@@ -898,7 +959,8 @@
       tr.appendChild(tdSel);
       var tdCover = document.createElement('td');
       var img = document.createElement('img');
-      img.src = coverSrc(b.cover); img.loading = 'lazy'; img.onerror = onImgError;
+      img.src = PLACEHOLDER; img.loading = 'lazy'; img.onerror = onImgError;
+      setupLazyCover(img, b.id);
       tdCover.appendChild(img); tr.appendChild(tdCover);
       var tdTitle = document.createElement('td'); tdTitle.textContent = b.title || ''; tr.appendChild(tdTitle);
       var tdAuth = document.createElement('td'); tdAuth.textContent = (b.authors || []).join(', '); tr.appendChild(tdAuth);
@@ -1055,16 +1117,78 @@
     scannerAnimFrame = requestAnimationFrame(scanFrame);
   }
 
+  // Batch scan state
+  var batchScanToggle = document.getElementById('batchScanToggle');
+  var batchScanStatus = document.getElementById('batchScanStatus');
+  var scannerTitle = document.getElementById('scannerTitle');
+  var batchScannedIsbns = new Set();
+  var batchScannedItems = [];
+
   function onBarcodeDetected(code) {
-    stopScanner();
-    scannerModal.classList.add('hidden');
-    showModal({ isbn: code, title: '', authors: [], location: '' });
-    isbnEl.value = code;
-    isbnEl.dispatchEvent(new Event('input'));
-    if (settings.autoFetchMetadata) {
-      fetchMetaBtn.click();
+    if (batchScanToggle && batchScanToggle.checked) {
+      // Batch mode: save immediately, keep scanning
+      onBatchBarcodeDetected(code);
+    } else {
+      // Single mode: open edit modal
+      stopScanner();
+      scannerModal.classList.add('hidden');
+      showModal({ isbn: code, title: '', authors: [], location: '' });
+      isbnEl.value = code;
+      isbnEl.dispatchEvent(new Event('input'));
+      if (settings.autoFetchMetadata) {
+        fetchMetaBtn.click();
+      }
     }
   }
+
+  async function onBatchBarcodeDetected(code) {
+    if (batchScannedIsbns.has(code)) return; // Already scanned this session
+    batchScannedIsbns.add(code);
+
+    // Check duplicates in library if setting enabled
+    if (settings.warnDuplicateIsbn !== false) {
+      try {
+        var existing = await fetch('/api/books/by-isbn/' + encodeURIComponent(code)).then(apiResponse);
+        if (existing && existing.length > 0) {
+          addBatchScanItem(code, 'dup', 'Already in library');
+          return;
+        }
+      } catch (e) { /* proceed */ }
+    }
+
+    // Create book immediately with just ISBN
+    try {
+      var result = await api.create({ isbn: code });
+      addBatchScanItem(code, 'ok', result.title || 'Saved');
+    } catch (e) {
+      addBatchScanItem(code, 'err', 'Error: ' + e.message);
+    }
+  }
+
+  function addBatchScanItem(isbn, status, text) {
+    batchScannedItems.unshift({ isbn: isbn, status: status, text: text });
+    batchScanStatus.classList.remove('hidden');
+    var div = document.createElement('div');
+    div.className = 'scan-item';
+    var spanIsbn = document.createElement('span');
+    spanIsbn.textContent = isbn;
+    var spanStatus = document.createElement('span');
+    spanStatus.className = 'scan-' + status;
+    spanStatus.textContent = text;
+    div.appendChild(spanIsbn);
+    div.appendChild(spanStatus);
+    batchScanStatus.prepend(div);
+  }
+
+  batchScanToggle.addEventListener('change', function () {
+    scannerTitle.textContent = batchScanToggle.checked ? 'Batch Scan' : 'Scan Barcode';
+    if (batchScanToggle.checked) {
+      batchScannedIsbns.clear();
+      batchScannedItems = [];
+      batchScanStatus.innerHTML = '';
+      batchScanStatus.classList.add('hidden');
+    }
+  });
 
   function stopScanner() {
     scannerRunning = false;
@@ -1073,7 +1197,108 @@
     var video = scannerArea.querySelector('video');
     if (video) { video.srcObject = null; }
     scannerArea.innerHTML = '';
+    // If batch mode was used, refresh the book list
+    if (batchScannedItems.length > 0) {
+      batchScannedItems = [];
+      batchScannedIsbns.clear();
+      refresh().catch(function () {});
+    }
   }
+
+  // --- Changelog ---
+  var changelogModal = document.getElementById('changelogModal');
+  var changelogArea = document.getElementById('changelogArea');
+  var changelogClose = document.getElementById('changelogClose');
+  var changelogLoadMore = document.getElementById('changelogLoadMore');
+  var changelogBtnMobile = document.getElementById('changelogBtnMobile');
+  var changelogOffset = 0;
+
+  function formatChangelogAction(entry) {
+    var action = entry.action || 'unknown';
+    var cls = 'action-' + action;
+    var label = action.replace(/-/g, ' ');
+    if (action === 'bulk-deleted') label = 'bulk deleted (' + (entry.count || '?') + ')';
+    if (action === 'bulk-updated') label = 'bulk updated (' + (entry.count || '?') + ')';
+    if (action === 'imported') label = 'imported (' + (entry.count || '?') + ')';
+    return '<span class="' + cls + '">' + label + '</span>';
+  }
+
+  function renderChangelogEntries(entries, append) {
+    if (!append) changelogArea.innerHTML = '';
+    if (!entries.length && !append) {
+      changelogArea.innerHTML = '<p style="color:#64748b; text-align:center; padding:20px;">No changes recorded yet.</p>';
+      return;
+    }
+    var table = changelogArea.querySelector('table');
+    var tbody;
+    if (!table) {
+      table = document.createElement('table');
+      table.className = 'changelog-table';
+      var thead = document.createElement('thead');
+      var hr = document.createElement('tr');
+      ['Time', 'Action', 'Book'].forEach(function (h) {
+        var th = document.createElement('th'); th.textContent = h; hr.appendChild(th);
+      });
+      thead.appendChild(hr);
+      table.appendChild(thead);
+      tbody = document.createElement('tbody');
+      table.appendChild(tbody);
+      changelogArea.appendChild(table);
+    } else {
+      tbody = table.querySelector('tbody');
+    }
+    entries.forEach(function (e) {
+      var tr = document.createElement('tr');
+      var tdTime = document.createElement('td');
+      tdTime.textContent = e.timestamp ? new Date(e.timestamp).toLocaleString() : '-';
+      var tdAction = document.createElement('td');
+      tdAction.innerHTML = formatChangelogAction(e);
+      var tdBook = document.createElement('td');
+      if (e.bookId && e.action !== 'deleted') {
+        var a = document.createElement('a');
+        a.href = '#';
+        a.textContent = e.title || e.bookId;
+        a.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          changelogModal.classList.add('hidden');
+          api.get(e.bookId).then(function (book) { showDetail(book); }).catch(function () { alert('Book not found (may have been deleted).'); });
+        });
+        tdBook.appendChild(a);
+      } else {
+        tdBook.textContent = e.title || e.bookId || '-';
+      }
+      tr.appendChild(tdTime); tr.appendChild(tdAction); tr.appendChild(tdBook);
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function openChangelog() {
+    changelogOffset = 0;
+    changelogArea.innerHTML = '';
+    changelogModal.classList.remove('hidden');
+    try {
+      var data = await api.getChangelog(100, 0);
+      renderChangelogEntries(data.entries, false);
+      changelogOffset = 100;
+      changelogLoadMore.classList.toggle('hidden', data.entries.length >= data.total);
+    } catch (e) {
+      changelogArea.innerHTML = '<p style="color:#dc2626;">Failed to load changelog.</p>';
+    }
+  }
+
+  changelogClose.addEventListener('click', function () { changelogModal.classList.add('hidden'); });
+  changelogLoadMore.addEventListener('click', async function () {
+    try {
+      var data = await api.getChangelog(100, changelogOffset);
+      renderChangelogEntries(data.entries, true);
+      changelogOffset += 100;
+      changelogLoadMore.classList.toggle('hidden', changelogOffset >= data.total);
+    } catch (e) { /* ignore */ }
+  });
+  if (changelogBtnMobile) changelogBtnMobile.addEventListener('click', function () {
+    closeSidebar();
+    openChangelog();
+  });
 
   // --- Keyboard shortcuts ---
   function isAnyModalOpen() {
@@ -1081,7 +1306,8 @@
            !detailModal.classList.contains('hidden') ||
            !settingsModal.classList.contains('hidden') ||
            !scannerModal.classList.contains('hidden') ||
-           !importPreviewModal.classList.contains('hidden');
+           !importPreviewModal.classList.contains('hidden') ||
+           !changelogModal.classList.contains('hidden');
   }
 
   function highlightFocused(filtered) {
@@ -1106,6 +1332,7 @@
       if (!modal.classList.contains('hidden')) { hideModal(); e.preventDefault(); return; }
       if (!detailModal.classList.contains('hidden')) { detailModal.classList.add('hidden'); e.preventDefault(); return; }
       if (!settingsModal.classList.contains('hidden')) { settingsCloseBtn.click(); e.preventDefault(); return; }
+      if (!changelogModal.classList.contains('hidden')) { changelogModal.classList.add('hidden'); e.preventDefault(); return; }
       if (!importPreviewModal.classList.contains('hidden')) { importPreviewModal.classList.add('hidden'); e.preventDefault(); return; }
       if (selectedIds.size > 0) { selectedIds.clear(); updateSelectionBar(); e.preventDefault(); return; }
       // Blur active element

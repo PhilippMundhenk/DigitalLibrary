@@ -3,7 +3,7 @@ describe('Data storage', () => {
     cy.request('POST', '/api/clear');
   });
 
-  it('stores books in single JSON file accessible via API', () => {
+  it('stores books in per-file storage accessible via API', () => {
     cy.request('POST', '/api/books', {
       title: 'Storage Test',
       authors: ['Author'],
@@ -11,7 +11,7 @@ describe('Data storage', () => {
       location: 'shelf-S1'
     });
     cy.request('/api/books').then(res => {
-      const book = res.body.find(b => b.title === 'Storage Test');
+      const book = res.body.books.find(b => b.title === 'Storage Test');
       expect(book).to.exist;
       expect(book.id).to.be.a('string');
       expect(book.created_at).to.be.a('string');
@@ -55,8 +55,8 @@ describe('Data storage', () => {
       });
       // Only middle book remains
       cy.request('/api/books').then(r => {
-        expect(r.body.length).to.eq(1);
-        expect(r.body[0].title).to.eq('Bulk2');
+        expect(r.body.books.length).to.eq(1);
+        expect(r.body.books[0].title).to.eq('Bulk2');
       });
     });
   });
@@ -65,7 +65,7 @@ describe('Data storage', () => {
     cy.request('POST', '/api/books', { title: 'ClearMe' });
     cy.request('POST', '/api/clear');
     cy.request('/api/books').then(res => {
-      expect(res.body.length).to.eq(0);
+      expect(res.body.books.length).to.eq(0);
     });
   });
 });

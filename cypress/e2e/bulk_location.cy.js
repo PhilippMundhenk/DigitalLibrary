@@ -19,7 +19,7 @@ describe('Bulk set location', () => {
 
     // Verify via API
     cy.request('/api/books').then((res) => {
-      const books = res.body;
+      const books = res.body.books;
       expect(books.every(b => b.location === 'new-shelf')).to.be.true;
     });
   });

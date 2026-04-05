@@ -73,8 +73,8 @@ describe('Import flow', () => {
     cy.get('#importPreview').should('not.be.visible');
 
     cy.request('/api/books').then(res => {
-      const bulkA = res.body.find(b => b.title === 'Bulk Loc A');
-      const bulkB = res.body.find(b => b.title === 'Bulk Loc B');
+      const bulkA = res.body.books.find(b => b.title === 'Bulk Loc A');
+      const bulkB = res.body.books.find(b => b.title === 'Bulk Loc B');
       expect(bulkA.location).to.eq('shelf-Z9');
       expect(bulkB.location).to.eq('shelf-Z9');
     });
@@ -116,7 +116,7 @@ describe('Import flow', () => {
 
     // Nothing should be imported
     cy.request('/api/books').then(res => {
-      expect(res.body.find(b => b.title === 'Cancel Test')).to.be.undefined;
+      expect(res.body.books.find(b => b.title === 'Cancel Test')).to.be.undefined;
     });
   });
 });

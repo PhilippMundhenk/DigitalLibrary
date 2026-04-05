@@ -147,6 +147,26 @@ main { padding: 24px; min-height: calc(100vh - 68px); }
 .import-progress-fill { height: 100%; background: #2563eb; border-radius: 4px; transition: width 0.2s; width: 0; }
 .import-progress span { font-size: 0.8rem; color: #64748b; white-space: nowrap; }
 
+/* Batch scan status */
+.batch-scan-status { padding: 12px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; margin-top: 12px; font-size: 0.85rem; max-height: 120px; overflow-y: auto; }
+.batch-scan-status .scan-item { display: flex; justify-content: space-between; padding: 2px 0; }
+.batch-scan-status .scan-ok { color: #16a34a; }
+.batch-scan-status .scan-dup { color: #d97706; }
+.batch-scan-status .scan-err { color: #dc2626; }
+
+/* Changelog */
+.changelog-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.changelog-table th { background: #f8fafc; padding: 8px 12px; text-align: left; border-bottom: 2px solid #e2e8f0; font-size: 0.8rem; }
+.changelog-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
+.changelog-table .action-created { color: #16a34a; font-weight: 500; }
+.changelog-table .action-updated { color: #2563eb; font-weight: 500; }
+.changelog-table .action-deleted { color: #dc2626; font-weight: 500; }
+.changelog-table .action-imported { color: #7c3aed; font-weight: 500; }
+.changelog-table .action-bulk-deleted { color: #dc2626; font-weight: 500; }
+.changelog-table .action-bulk-updated { color: #2563eb; font-weight: 500; }
+.changelog-table a { color: #2563eb; text-decoration: none; }
+.changelog-table a:hover { text-decoration: underline; }
+
 /* Hamburger menu button (hidden on desktop) */
 .menu-toggle { display: none; background: none; border: none; color: #f8fafc; font-size: 1.5rem; cursor: pointer; padding: 4px 8px; line-height: 1; }
 

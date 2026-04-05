@@ -57,6 +57,7 @@
           <input id="importFileMobile" type="file" accept=".csv,.json,.txt" />
         </label>
         <button id="settingsBtnMobile" class="sidebar-item btn">Settings</button>
+        <button id="changelogBtnMobile" class="sidebar-item btn">Change Log</button>
       </div>
     </nav>
 
@@ -203,10 +204,27 @@
     <!-- Scanner -->
     <div id="scanner" class="modal hidden">
       <div class="modal-content">
-        <h3>Scan Barcode</h3>
+        <h3 id="scannerTitle">Scan Barcode</h3>
         <div id="scanner-area"></div>
+        <div id="batchScanStatus" class="batch-scan-status hidden"></div>
         <div class="modal-actions">
+          <label class="setting-row" style="margin-right:auto;">
+            <input type="checkbox" id="batchScanToggle" />
+            Batch mode
+          </label>
           <button id="closeScanner" class="btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Changelog modal -->
+    <div id="changelogModal" class="modal hidden">
+      <div class="modal-content" style="max-width: 700px;">
+        <h3>Change Log</h3>
+        <div id="changelogArea" style="max-height: 60vh; overflow-y: auto;"></div>
+        <div class="modal-actions">
+          <button id="changelogLoadMore" class="btn btn-secondary">Load More</button>
+          <button id="changelogClose" class="btn">Close</button>
         </div>
       </div>
     </div>
