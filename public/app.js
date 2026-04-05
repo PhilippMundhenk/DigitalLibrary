@@ -144,6 +144,7 @@
   var settingsBtn = document.getElementById('settingsBtn');
   var settingsModal = document.getElementById('settingsModal');
   var settAutoFetch = document.getElementById('settAutoFetch');
+  var settWarnDuplicate = document.getElementById('settWarnDuplicate');
   var clearLibraryBtn = document.getElementById('clearLibraryBtn');
   var settingsCloseBtn = document.getElementById('settingsCloseBtn');
   var customFieldsList = document.getElementById('customFieldsList');
@@ -166,7 +167,7 @@
   var importPreviewEntries = [];
   var currentDetailBook = null;
   var allBooks = [];
-  var settings = { autoFetchMetadata: true, customFields: [] };
+  var settings = { autoFetchMetadata: true, warnDuplicateIsbn: true, customFields: [] };
   var isbnFetchTimeout = null;
   var selectedIds = new Set();
   var importCancelled = false;
@@ -177,7 +178,20 @@
     settings = await api.getSettings();
     if (!settings.customFields) settings.customFields = [];
     settAutoFetch.checked = settings.autoFetchMetadata !== false;
+    settWarnDuplicate.checked = settings.warnDuplicateIsbn !== false;
   } catch (e) { /* defaults */ }
+
+  // Check storage health
+  try {
+    var health = await fetch('/api/health').then(apiResponse);
+    if (!health.writable) {
+      var banner = document.createElement('div');
+      banner.id = 'storageBanner';
+      banner.className = 'storage-banner';
+      banner.textContent = 'Warning: Data directory is not writable. Changes will not be saved. Check file permissions on the server.';
+      document.getElementById('app').prepend(banner);
+    }
+  } catch (e) { /* ignore */ }
 
   // --- Custom fields ---
   function renderCustomFieldsSettings() {
@@ -390,14 +404,30 @@
       modalError.classList.remove('hidden');
       return;
     }
+    // Duplicate ISBN check
+    if (!editingId && book.isbn && settings.warnDuplicateIsbn !== false) {
+      try {
+        var existing = await fetch('/api/books/by-isbn/' + encodeURIComponent(book.isbn)).then(apiResponse);
+        if (existing && existing.length > 0) {
+          var names = existing.map(function (b) { return b.title || b.isbn; }).join(', ');
+          if (!confirm('A book with this ISBN already exists:\n' + names + '\n\nAdd anyway?')) {
+            return;
+          }
+        }
+      } catch (e) { /* ignore check errors */ }
+    }
     saveBtn.disabled = true;
     try {
       if (editingId) { await api.update(editingId, book); }
       else { await api.create(book); }
       hideModal();
-      await refresh();
-    } catch (e) { alert('Save error: ' + e.message); }
+    } catch (e) {
+      alert('Save error: ' + e.message);
+      saveBtn.disabled = false;
+      return;
+    }
     saveBtn.disabled = false;
+    try { await refresh(); } catch (e) { console.error('Refresh error:', e); }
   });
   cancelBtn.addEventListener('click', hideModal);
   addBtn.addEventListener('click', function () { showModal(null); });
@@ -679,13 +709,19 @@
   // --- Settings ---
   settingsBtn.addEventListener('click', function () {
     settAutoFetch.checked = settings.autoFetchMetadata !== false;
+    settWarnDuplicate.checked = settings.warnDuplicateIsbn !== false;
     renderCustomFieldsSettings();
     settingsModal.classList.remove('hidden');
   });
 
   settingsCloseBtn.addEventListener('click', async function () {
     settings.autoFetchMetadata = settAutoFetch.checked;
-    await api.saveSettings(settings);
+    settings.warnDuplicateIsbn = settWarnDuplicate.checked;
+    try {
+      await api.saveSettings(settings);
+    } catch (e) {
+      console.error('Settings save error:', e);
+    }
     settingsModal.classList.add('hidden');
   });
 
@@ -696,6 +732,50 @@
     settingsModal.classList.add('hidden');
     selectedIds.clear();
     await refresh();
+  });
+
+  // --- Mobile sidebar ---
+  var menuToggle = document.getElementById('menuToggle');
+  var sidebar = document.getElementById('sidebar');
+  var sidebarOverlay = document.getElementById('sidebarOverlay');
+  var sidebarClose = document.getElementById('sidebarClose');
+  var viewMobile = document.getElementById('viewMobile');
+  var locationFilterMobile = document.getElementById('locationFilterMobile');
+  var importFileMobile = document.getElementById('importFileMobile');
+  var settingsBtnMobile = document.getElementById('settingsBtnMobile');
+
+  function openSidebar() { sidebar.classList.remove('hidden'); sidebarOverlay.classList.remove('hidden'); }
+  function closeSidebar() { sidebar.classList.add('hidden'); sidebarOverlay.classList.add('hidden'); }
+  if (menuToggle) menuToggle.addEventListener('click', openSidebar);
+  if (sidebarClose) sidebarClose.addEventListener('click', closeSidebar);
+  if (sidebarOverlay) sidebarOverlay.addEventListener('click', closeSidebar);
+
+  // Sync mobile sidebar controls with main controls
+  if (viewMobile) viewMobile.addEventListener('change', function () {
+    viewSel.value = viewMobile.value;
+    viewSel.dispatchEvent(new Event('change'));
+    closeSidebar();
+  });
+  if (locationFilterMobile) locationFilterMobile.addEventListener('change', function () {
+    locationFilter.value = locationFilterMobile.value;
+    locationFilter.dispatchEvent(new Event('change'));
+    closeSidebar();
+  });
+  if (importFileMobile) importFileMobile.addEventListener('change', function () {
+    // Copy file to main import input and trigger
+    var files = importFileMobile.files;
+    if (files.length) {
+      var dt = new DataTransfer();
+      dt.items.add(files[0]);
+      importFile.files = dt.files;
+      importFile.dispatchEvent(new Event('change'));
+    }
+    importFileMobile.value = '';
+    closeSidebar();
+  });
+  if (settingsBtnMobile) settingsBtnMobile.addEventListener('click', function () {
+    closeSidebar();
+    settingsBtn.click();
   });
 
   // --- Search, filter, view toggle ---
@@ -718,12 +798,15 @@
     var locs = []; var seen = {};
     books.forEach(function (b) { if (b.location && !seen[b.location]) { seen[b.location] = true; locs.push(b.location); } });
     locs.sort();
-    locationFilter.innerHTML = '<option value="">All locations</option>';
-    locs.forEach(function (l) {
-      var opt = document.createElement('option');
-      opt.value = l; opt.textContent = l;
-      if (l === current) opt.selected = true;
-      locationFilter.appendChild(opt);
+    [locationFilter, locationFilterMobile].forEach(function (sel) {
+      if (!sel) return;
+      sel.innerHTML = '<option value="">All locations</option>';
+      locs.forEach(function (l) {
+        var opt = document.createElement('option');
+        opt.value = l; opt.textContent = l;
+        if (l === current) opt.selected = true;
+        sel.appendChild(opt);
+      });
     });
   }
 

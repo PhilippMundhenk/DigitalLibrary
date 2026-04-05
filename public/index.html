@@ -9,25 +9,56 @@
 <body>
   <div id="app">
     <header>
+      <button id="menuToggle" class="menu-toggle" aria-label="Menu">&#9776;</button>
       <h1>Digital Library</h1>
       <div class="controls">
         <input id="search" placeholder="Search books..." />
-        <select id="locationFilter">
+        <select id="locationFilter" class="hide-mobile">
           <option value="">All locations</option>
         </select>
-        <select id="view">
+        <select id="view" class="hide-mobile">
           <option value="gallery">Gallery</option>
           <option value="table">Table</option>
         </select>
-        <button id="addBtn" class="btn btn-primary">+ Add Book</button>
-        <button id="scanBtn" class="btn btn-secondary">Scan ISBN</button>
-        <label class="btn btn-secondary import-label">
+        <button id="addBtn" class="btn btn-primary">+ Add</button>
+        <button id="scanBtn" class="btn btn-secondary">Scan</button>
+        <label class="btn btn-secondary import-label hide-mobile">
           Import
           <input id="importFile" type="file" accept=".csv,.json,.txt" />
         </label>
-        <button id="settingsBtn" class="btn">Settings</button>
+        <button id="settingsBtn" class="btn hide-mobile">Settings</button>
       </div>
     </header>
+
+    <!-- Mobile sidebar -->
+    <div id="sidebarOverlay" class="sidebar-overlay hidden"></div>
+    <nav id="sidebar" class="sidebar hidden">
+      <div class="sidebar-header">
+        <h2>Menu</h2>
+        <button id="sidebarClose" class="sidebar-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="sidebar-body">
+        <label class="sidebar-item">
+          <span>Location</span>
+          <select id="locationFilterMobile">
+            <option value="">All locations</option>
+          </select>
+        </label>
+        <label class="sidebar-item">
+          <span>View</span>
+          <select id="viewMobile">
+            <option value="gallery">Gallery</option>
+            <option value="table">Table</option>
+          </select>
+        </label>
+        <hr class="sidebar-divider" />
+        <label class="sidebar-item btn btn-secondary import-label">
+          Import
+          <input id="importFileMobile" type="file" accept=".csv,.json,.txt" />
+        </label>
+        <button id="settingsBtnMobile" class="sidebar-item btn">Settings</button>
+      </div>
+    </nav>
 
     <!-- Multi-select toolbar -->
     <div id="selectionBar" class="selection-bar hidden">
@@ -146,6 +177,10 @@
         <label class="setting-row">
           <input type="checkbox" id="settAutoFetch" checked />
           Automatically fetch metadata when ISBN is entered or scanned
+        </label>
+        <label class="setting-row" style="margin-top: 8px;">
+          <input type="checkbox" id="settWarnDuplicate" checked />
+          Warn when adding a book with an ISBN that already exists
         </label>
         <hr style="margin: 16px 0; border: none; border-top: 1px solid #e2e8f0;" />
         <h4 style="margin-bottom: 8px; color: #64748b; font-size: 0.9rem;">Custom Fields</h4>

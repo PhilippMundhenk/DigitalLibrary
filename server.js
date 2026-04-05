@@ -90,18 +90,26 @@ function sanitizeBookPayload(raw, customFields) {
     if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
     if (!allowed.has(key)) continue;
     const val = raw[key];
+    if (val === null || val === undefined) continue;
     if (key === 'authors') {
-      out.authors = Array.isArray(val)
-        ? val.filter(a => typeof a === 'string').map(a => String(a).slice(0, 200))
-        : [];
+      if (Array.isArray(val)) {
+        out.authors = val.filter(a => a != null).map(a => String(a).trim().slice(0, 200)).filter(Boolean);
+      } else if (typeof val === 'string') {
+        out.authors = val.split(/[,;]/).map(a => a.trim().slice(0, 200)).filter(Boolean);
+      } else {
+        out.authors = [];
+      }
     } else if (key === 'pages') {
       const n = parseInt(val, 10);
       if (!isNaN(n) && n > 0 && n < 100000) out.pages = n;
     } else if (key === 'cover') {
-      // Allow data URIs up to ~2MB base64 and https URLs
       if (typeof val === 'string' && val.length <= 3_000_000) out.cover = val;
-    } else if (typeof val === 'string') {
-      out[key] = String(val).slice(0, 5000);
+    } else {
+      // Accept strings and coerce numbers/booleans to string
+      const str = typeof val === 'string' ? val
+        : (typeof val === 'number' || typeof val === 'boolean') ? String(val)
+        : null;
+      if (str !== null) out[key] = str.slice(0, 5000);
     }
   }
   return out;
@@ -111,6 +119,7 @@ function sanitizeSettingsPatch(raw) {
   if (!raw || typeof raw !== 'object') return {};
   const out = {};
   if (typeof raw.autoFetchMetadata === 'boolean') out.autoFetchMetadata = raw.autoFetchMetadata;
+  if (typeof raw.warnDuplicateIsbn === 'boolean') out.warnDuplicateIsbn = raw.warnDuplicateIsbn;
   if (Array.isArray(raw.customFields)) {
     out.customFields = raw.customFields
       .filter(f => f && typeof f.name === 'string' && typeof f.label === 'string')
@@ -140,6 +149,12 @@ const coverUpload = multer({
     }
     cb(null, true);
   }
+});
+
+// --- Health / storage check ---
+app.get('/api/health', async (req, res) => {
+  const ok = await storage.checkWritable();
+  res.json({ ok, writable: ok, dataDir: storage.getDataDir() });
 });
 
 // --- Settings ---
@@ -236,6 +251,19 @@ app.put('/api/books/bulk-update', async (req, res) => {
   }
 });
 
+app.get('/api/books/by-isbn/:isbn', async (req, res) => {
+  try {
+    const isbn = String(req.params.isbn).replace(/[^0-9Xx]/g, '');
+    if (!isbn) return res.json([]);
+    const items = await storage.listBooks();
+    const matches = items.filter(b => b.isbn && b.isbn.replace(/[^0-9Xx]/g, '') === isbn);
+    res.json(matches.map(b => ({ id: b.id, title: b.title, isbn: b.isbn, authors: b.authors })));
+  } catch (err) {
+    console.error('GET /api/books/by-isbn error:', err);
+    res.status(500).json({ error: 'Failed to check ISBN' });
+  }
+});
+
 app.get('/api/books/:id', async (req, res) => {
   try {
     const book = await storage.readBook(req.params.id);
@@ -251,13 +279,14 @@ app.post('/api/books', async (req, res) => {
   try {
     const settings = await storage.getSettings();
     const payload = sanitizeBookPayload(req.body, settings.customFields);
-    if (payload.isbn && (!payload.title || !payload.authors || payload.cover === undefined)) {
+    if (payload.isbn && (!payload.title || !(payload.authors && payload.authors.length))) {
       try {
-        const meta = await metadata.fetchByISBN(String(payload.isbn), { downloadCover: true });
+        const meta = await metadata.fetchByISBN(String(payload.isbn), { downloadCover: !payload.cover });
         const safeMeta = sanitizeBookPayload(meta, settings.customFields);
-        // payload fields override metadata
         for (const k of Object.keys(safeMeta)) {
-          if (!(k in payload) || payload[k] === undefined) payload[k] = safeMeta[k];
+          if (payload[k] === undefined || payload[k] === '' || (Array.isArray(payload[k]) && payload[k].length === 0)) {
+            payload[k] = safeMeta[k];
+          }
         }
       } catch (e) { /* continue without metadata */ }
     }
@@ -336,10 +365,18 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
     const settings = await storage.getSettings();
     const results = [];
     for (const e of entries) {
-      const payload = sanitizeBookPayload(e, settings.customFields);
-      const id = uuidv4();
-      const now = new Date().toISOString();
-      results.push({ id, created_at: now, updated_at: now, ...payload });
+      try {
+        const payload = sanitizeBookPayload(e, settings.customFields);
+        const id = uuidv4();
+        const now = new Date().toISOString();
+        results.push({ id, created_at: now, updated_at: now, ...payload });
+      } catch (entryErr) {
+        console.error('Import entry error:', entryErr);
+        // Skip bad entries instead of failing the whole import
+      }
+    }
+    if (results.length === 0) {
+      return res.status(400).json({ error: 'No valid entries to import' });
     }
     await storage.saveBooks(results);
     res.json({ imported: results.length, books: results });
@@ -394,11 +431,23 @@ app.get('*', (req, res) => {
 });
 
 async function start() {
-  storage.ensureDataDirs().catch(err => console.error('ensureDataDirs failed', err));
+  try {
+    await storage.ensureDataDirs();
+    const ok = await storage.checkWritable();
+    if (!ok) {
+      console.error('WARNING: Data directory is not writable! Data will NOT persist. Check permissions on:', storage.getDataDir());
+    } else {
+      // Ensure settings file exists on first run
+      await storage.getSettings();
+    }
+  } catch (err) {
+    console.error('Storage init error:', err);
+  }
   return new Promise((resolve) => {
     const server = app.listen(PORT, () => {
       if (!process.env.JEST_WORKER_ID) {
         console.log(`Digital Library listening on http://0.0.0.0:${PORT}`);
+        console.log(`Data directory: ${storage.getDataDir()}`);
       }
       resolve(server);
     });

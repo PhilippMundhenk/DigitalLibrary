@@ -286,10 +286,10 @@ describe('API', () => {
     expect(res.body.title.length).toBeLessThanOrEqual(5000);
   });
 
-  test('validates authors is array of strings', async () => {
+  test('validates authors is array — coerces numbers, drops null', async () => {
     const res = await request(server).post('/api/books')
       .send({ title: 'Auth Test', authors: ['Good Author', 123, null] }).expect(201);
-    expect(res.body.authors).toEqual(['Good Author']);
+    expect(res.body.authors).toEqual(['Good Author', '123']);
   });
 
   test('validates pages as positive integer', async () => {
@@ -381,6 +381,84 @@ describe('API', () => {
     expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
     expect(res.headers['cache-control']).toBe('no-store');
+  });
+
+  // --- Health endpoint ---
+  test('health endpoint returns writable status', async () => {
+    const res = await request(server).get('/api/health').expect(200);
+    expect(res.body).toHaveProperty('ok');
+    expect(res.body).toHaveProperty('writable');
+    expect(res.body.writable).toBe(true);
+  });
+
+  // --- Duplicate ISBN lookup ---
+  test('by-isbn endpoint finds books by ISBN', async () => {
+    await request(server).post('/api/clear').expect(200);
+    await request(server).post('/api/books')
+      .send({ title: 'ISBN Dup 1', isbn: '9780134685991' }).expect(201);
+    await request(server).post('/api/books')
+      .send({ title: 'ISBN Dup 2', isbn: '9780134685991' }).expect(201);
+    const res = await request(server).get('/api/books/by-isbn/9780134685991').expect(200);
+    expect(res.body.length).toBe(2);
+    expect(res.body[0]).toHaveProperty('title');
+    expect(res.body[0]).toHaveProperty('id');
+  });
+
+  test('by-isbn returns empty array for unknown ISBN', async () => {
+    const res = await request(server).get('/api/books/by-isbn/0000000000').expect(200);
+    expect(res.body).toEqual([]);
+  });
+
+  // --- Sanitizer: authors as string ---
+  test('sanitizer converts authors string to array', async () => {
+    const res = await request(server).post('/api/books')
+      .send({ title: 'String Authors', authors: 'Author One, Author Two' }).expect(201);
+    expect(res.body.authors).toEqual(['Author One', 'Author Two']);
+  });
+
+  test('sanitizer handles semicolon-separated authors', async () => {
+    const res = await request(server).post('/api/books')
+      .send({ title: 'Semi Authors', authors: 'Author A; Author B' }).expect(201);
+    expect(res.body.authors).toEqual(['Author A', 'Author B']);
+  });
+
+  // --- Sanitizer: coerce non-string values ---
+  test('sanitizer coerces number to string for title', async () => {
+    const res = await request(server).post('/api/books')
+      .send({ title: 12345 }).expect(201);
+    expect(res.body.title).toBe('12345');
+  });
+
+  test('sanitizer skips null and undefined values', async () => {
+    const res = await request(server).post('/api/books')
+      .send({ title: 'Null Test', isbn: null, location: undefined }).expect(201);
+    expect(res.body.title).toBe('Null Test');
+    expect(res.body.isbn).toBeUndefined();
+    expect(res.body.location).toBeUndefined();
+  });
+
+  // --- Import with various entry formats ---
+  test('import handles authors as string', async () => {
+    const books = [{ title: 'Import Author Str', authors: 'Author X, Author Y' }];
+    const res = await request(server)
+      .post('/api/import')
+      .attach('file', Buffer.from(JSON.stringify(books)), 'str-authors.json')
+      .expect(200);
+    expect(res.body.imported).toBe(1);
+    expect(res.body.books[0].authors).toEqual(['Author X', 'Author Y']);
+  });
+
+  // --- Settings: warnDuplicateIsbn ---
+  test('settings include warnDuplicateIsbn', async () => {
+    const res = await request(server).get('/api/settings').expect(200);
+    expect(res.body).toHaveProperty('warnDuplicateIsbn');
+  });
+
+  test('update warnDuplicateIsbn setting', async () => {
+    await request(server).put('/api/settings')
+      .send({ warnDuplicateIsbn: false }).expect(200);
+    const res = await request(server).get('/api/settings').expect(200);
+    expect(res.body.warnDuplicateIsbn).toBe(false);
   });
 
   // --- Clear library ---

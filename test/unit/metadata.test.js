@@ -298,6 +298,63 @@ describe('fetchDNB', () => {
     expect(result.title).not.toContain('&#');
   });
 
+  test('strips "=" parallel title indicator from subtitle', async () => {
+    const marcXml = `<?xml version="1.0"?>
+    <searchRetrieveResponse>
+      <records>
+        <record>
+          <recordData>
+            <marc:record xmlns:marc="info:lc/xmlns/marcxchange-v1">
+              <marc:datafield tag="245" ind1="1" ind2="0">
+                <marc:subfield code="a">Haupttitel</marc:subfield>
+                <marc:subfield code="b">= Parallel title</marc:subfield>
+              </marc:datafield>
+              <marc:datafield tag="100" ind1="1" ind2=" ">
+                <marc:subfield code="a">Author</marc:subfield>
+              </marc:datafield>
+            </marc:record>
+          </recordData>
+        </record>
+      </records>
+    </searchRetrieveResponse>`;
+    fetch.mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve(marcXml),
+      headers: { get: () => null }
+    });
+    const result = await metadata.fetchDNB('9783123456789');
+    expect(result.title).toBe('Haupttitel: Parallel title');
+    expect(result.title).not.toContain('=');
+  });
+
+  test('strips trailing "=" from title', async () => {
+    const marcXml = `<?xml version="1.0"?>
+    <searchRetrieveResponse>
+      <records>
+        <record>
+          <recordData>
+            <marc:record xmlns:marc="info:lc/xmlns/marcxchange-v1">
+              <marc:datafield tag="245" ind1="1" ind2="0">
+                <marc:subfield code="a">Title with trailing =</marc:subfield>
+              </marc:datafield>
+              <marc:datafield tag="100" ind1="1" ind2=" ">
+                <marc:subfield code="a">Author</marc:subfield>
+              </marc:datafield>
+            </marc:record>
+          </recordData>
+        </record>
+      </records>
+    </searchRetrieveResponse>`;
+    fetch.mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve(marcXml),
+      headers: { get: () => null }
+    });
+    const result = await metadata.fetchDNB('9783123456780');
+    expect(result.title).toBe('Title with trailing');
+    expect(result.title).not.toContain('=');
+  });
+
   test('returns null when no record found', async () => {
     fetch.mockResolvedValue({
       ok: true,

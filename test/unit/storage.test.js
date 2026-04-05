@@ -2,7 +2,7 @@ const fs = require('fs').promises;
 const os = require('os');
 const path = require('path');
 
-describe('storage module', () => {
+describe('storage module (per-file format)', () => {
   let DATA_DIR;
   let storage;
 
@@ -86,15 +86,21 @@ describe('storage module', () => {
     expect(list.length).toBe(0);
   });
 
-  test('data persists in single JSON file', async () => {
+  test('book persists as individual file', async () => {
     await storage.saveBook({ id: 'persist-1', title: 'Persist' });
-    // Check file exists
-    const dbPath = path.join(DATA_DIR, 'library.json');
-    const raw = await fs.readFile(dbPath, 'utf8');
+    const bookFile = path.join(DATA_DIR, 'books', 'persist-1.json');
+    const raw = await fs.readFile(bookFile, 'utf8');
     const data = JSON.parse(raw);
-    expect(data.books).toBeDefined();
-    expect(data.settings).toBeDefined();
-    expect(data.books.find(b => b.id === 'persist-1')).toBeTruthy();
+    expect(data.title).toBe('Persist');
+    expect(data.id).toBe('persist-1');
+  });
+
+  test('settings persist in settings.json', async () => {
+    await storage.updateSettings({ autoFetchMetadata: false });
+    const settingsFile = path.join(DATA_DIR, 'settings.json');
+    const raw = await fs.readFile(settingsFile, 'utf8');
+    const data = JSON.parse(raw);
+    expect(data.autoFetchMetadata).toBe(false);
   });
 
   test('settings include customFields', async () => {
@@ -103,6 +109,12 @@ describe('storage module', () => {
     });
     const s = await storage.getSettings();
     expect(s.customFields).toEqual([{ name: 'genre', label: 'Genre' }]);
+  });
+
+  test('settings include warnDuplicateIsbn default', async () => {
+    storage.resetCache();
+    const s = await storage.getSettings();
+    expect(s.warnDuplicateIsbn).toBe(true);
   });
 
   test('saveBook updates existing book', async () => {
@@ -142,9 +154,96 @@ describe('storage module', () => {
   test('resetCache forces reload from disk', async () => {
     await storage.saveBook({ id: 'cache-1', title: 'Cached' });
     storage.resetCache();
-    // After reset, data should reload from file
     const book = await storage.readBook('cache-1');
     expect(book).toBeTruthy();
     expect(book.title).toBe('Cached');
+  });
+
+  test('checkWritable returns true for writable dir', async () => {
+    const ok = await storage.checkWritable();
+    expect(ok).toBe(true);
+    expect(storage.isWritable()).toBe(true);
+  });
+
+  test('deleteBook removes file from disk', async () => {
+    await storage.saveBook({ id: 'file-del', title: 'FileDel' });
+    const bookFile = path.join(DATA_DIR, 'books', 'file-del.json');
+    // File should exist
+    await expect(fs.access(bookFile)).resolves.toBeUndefined();
+    await storage.deleteBook('file-del');
+    // File should be gone
+    await expect(fs.access(bookFile)).rejects.toThrow();
+  });
+
+  test('clearAll removes all book files from disk', async () => {
+    await storage.saveBooks([
+      { id: 'ca-1', title: 'CA1' },
+      { id: 'ca-2', title: 'CA2' }
+    ]);
+    await storage.clearAll();
+    const files = await fs.readdir(path.join(DATA_DIR, 'books'));
+    const jsonFiles = files.filter(f => f.endsWith('.json'));
+    expect(jsonFiles.length).toBe(0);
+  });
+
+  test('migrate from old single-file format', async () => {
+    // Create an old-format library.json
+    storage.resetCache();
+    const oldDb = {
+      settings: { autoFetchMetadata: false, customFields: [] },
+      books: [
+        { id: 'migrated-1', title: 'Migrated Book', isbn: '1234567890' },
+        { id: 'migrated-2', title: 'Another Migrated' }
+      ]
+    };
+    await fs.writeFile(path.join(DATA_DIR, 'library.json'), JSON.stringify(oldDb), 'utf8');
+    // Clear books dir
+    const booksDir = path.join(DATA_DIR, 'books');
+    const existingFiles = await fs.readdir(booksDir).catch(() => []);
+    for (const f of existingFiles) {
+      if (f.endsWith('.json')) await fs.unlink(path.join(booksDir, f));
+    }
+    storage.resetCache();
+
+    // Load should trigger migration
+    const list = await storage.listBooks();
+    expect(list.length).toBe(2);
+    expect(list.find(b => b.id === 'migrated-1')).toBeTruthy();
+
+    // Old file should be renamed
+    const migratedExists = await fs.access(path.join(DATA_DIR, 'library.json.migrated'))
+      .then(() => true).catch(() => false);
+    expect(migratedExists).toBe(true);
+
+    // Individual book files should exist
+    const bookFile = path.join(booksDir, 'migrated-1.json');
+    const raw = JSON.parse(await fs.readFile(bookFile, 'utf8'));
+    expect(raw.title).toBe('Migrated Book');
+
+    // Settings should be migrated
+    const s = await storage.getSettings();
+    expect(s.autoFetchMetadata).toBe(false);
+
+    // Cleanup
+    await fs.unlink(path.join(DATA_DIR, 'library.json.migrated')).catch(() => {});
+  });
+
+  test('handles book with large cover data', async () => {
+    const largeCover = 'data:image/jpeg;base64,' + 'A'.repeat(100000);
+    await storage.saveBook({ id: 'large-cover', title: 'Large', cover: largeCover });
+    storage.resetCache();
+    const book = await storage.readBook('large-cover');
+    expect(book.cover).toBe(largeCover);
+  });
+
+  test('concurrent saves do not corrupt data', async () => {
+    await storage.clearAll();
+    const promises = [];
+    for (let i = 0; i < 10; i++) {
+      promises.push(storage.saveBook({ id: `concurrent-${i}`, title: `Book ${i}` }));
+    }
+    await Promise.all(promises);
+    const list = await storage.listBooks();
+    expect(list.length).toBe(10);
   });
 });

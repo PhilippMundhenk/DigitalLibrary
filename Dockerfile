@@ -11,10 +11,10 @@ COPY server.js ./
 COPY lib/ ./lib/
 COPY public/ ./public/
 
-# Create non-root user and data directory
+# Create non-root user and data directory with books subdirectory
 RUN addgroup -g 1001 -S appgroup && \
     adduser -S appuser -u 1001 -G appgroup && \
-    mkdir -p /app/data && \
+    mkdir -p /app/data/books && \
     chown -R appuser:appgroup /app/data
 
 USER appuser
@@ -29,6 +29,6 @@ ENV PORT=3000
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget -qO- http://localhost:3000/api/settings || exit 1
+  CMD wget -qO- http://localhost:3000/api/health || exit 1
 
 CMD ["node", "server.js"]
