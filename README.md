@@ -2,6 +2,9 @@
 
 A self-hosted web application to manage a personal book library. Stores all data (books, covers, settings) in a single JSON file — no database required.
 
+> [!WARNING]
+> This is a fully vibe-coded app with absolutely no guarantee for anything! The code has not been reviewed and it has not been extensively tested.
+
 ## Features
 
 - **Add books** by title/author or ISBN with automatic metadata fetching
