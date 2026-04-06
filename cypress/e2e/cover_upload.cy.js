@@ -44,14 +44,19 @@ describe('Cover upload', () => {
   });
 
   it('displays cover set status when editing book with cover', () => {
+    // Valid 1x1 red PNG
+    const cover = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==';
+    cy.request('POST', '/api/clear');
     cy.request('POST', '/api/books', {
       title: 'Cover Test Book',
-      cover: 'data:image/png;base64,iVBORw0KGgo='
+      cover: cover
     });
     cy.visit('/');
     cy.waitForApp();
-    cy.contains('Cover Test Book').click();
+    cy.contains('.card', 'Cover Test Book').click();
     cy.get('#detail').should('be.visible');
+    // Wait for async full book load (detail-cover changes from placeholder SVG to PNG)
+    cy.get('#detail-cover', { timeout: 10000 }).should('have.attr', 'src').and('contain', 'base64,iVBOR');
     cy.get('#detailEditBtn').click();
     cy.get('#modal').should('be.visible');
     cy.get('#coverStatus').should('contain', 'Cover set');
