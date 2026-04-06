@@ -12,6 +12,7 @@ describe('Edit book flow', () => {
       location: 'shelf-E1'
     });
     cy.visit('/');
+    cy.waitForApp();
   });
 
   it('edits a book via detail view', () => {

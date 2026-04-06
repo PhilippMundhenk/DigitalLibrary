@@ -6,6 +6,7 @@ describe('Add Book flow', () => {
 
   it('visits and adds a book', () => {
     cy.visit('/');
+    cy.waitForApp();
     cy.get('#addBtn').click();
     cy.get('#modal').should('be.visible');
     cy.get('#title').type('Cypress Book');

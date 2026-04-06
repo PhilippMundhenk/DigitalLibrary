@@ -4,12 +4,11 @@ describe('Custom fields', () => {
     cy.request('PUT', '/api/settings', { autoFetchMetadata: false, warnDuplicateIsbn: true, customFields: [] });
   });
 
-  beforeEach(() => {
-    cy.visit('/');
-  });
-
   it('adds a custom field in settings', () => {
+    cy.visit('/');
+    cy.waitForApp();
     cy.get('#settingsBtn').click();
+    cy.get('#settingsModal').should('be.visible');
     cy.get('#newFieldName').type('Genre');
     cy.get('#addFieldBtn').click();
     cy.get('.custom-field-row').should('have.length', 1);
@@ -18,13 +17,14 @@ describe('Custom fields', () => {
   });
 
   it('shows custom field in add/edit modal', () => {
-    // First add the custom field
     cy.request('PUT', '/api/settings', {
       autoFetchMetadata: false,
       customFields: [{ name: 'genre', label: 'Genre' }]
     });
     cy.visit('/');
+    cy.waitForApp();
     cy.get('#addBtn').click();
+    cy.get('#modal').should('be.visible');
     cy.get('#customFieldsArea').should('contain', 'Genre');
     cy.get('[data-custom-field="genre"]').should('exist');
     cy.get('#cancelBtn').click();
@@ -36,7 +36,9 @@ describe('Custom fields', () => {
       customFields: [{ name: 'genre', label: 'Genre' }]
     });
     cy.visit('/');
+    cy.waitForApp();
     cy.get('#addBtn').click();
+    cy.get('#modal').should('be.visible');
     cy.get('#title').type('Custom Field Book');
     cy.get('#authors').type('Test Author');
     cy.get('[data-custom-field="genre"]').type('Science Fiction');
@@ -54,7 +56,9 @@ describe('Custom fields', () => {
       customFields: [{ name: 'genre', label: 'Genre' }]
     });
     cy.visit('/');
+    cy.waitForApp();
     cy.get('#settingsBtn').click();
+    cy.get('#settingsModal').should('be.visible');
     cy.get('.custom-field-row').should('have.length', 1);
     cy.get('.custom-field-row .btn-danger').click();
     cy.get('.custom-field-row').should('have.length', 0);
@@ -67,10 +71,11 @@ describe('Custom fields', () => {
       customFields: [{ name: 'genre', label: 'Genre' }]
     });
     cy.visit('/');
+    cy.waitForApp();
     cy.get('#settingsBtn').click();
+    cy.get('#settingsModal').should('be.visible');
     cy.get('#newFieldName').type('Genre');
     cy.get('#addFieldBtn').click();
-    // Should still have only 1
     cy.get('.custom-field-row').should('have.length', 1);
     cy.get('#settingsCloseBtn').click();
   });

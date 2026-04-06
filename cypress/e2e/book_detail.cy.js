@@ -6,7 +6,6 @@ describe('Book detail view', () => {
 
   beforeEach(() => {
     cy.request('POST', '/api/clear');
-    // Create a book via API
     cy.request('POST', '/api/books', {
       title: 'Detail Test Book',
       authors: ['Detail Author'],
@@ -15,6 +14,8 @@ describe('Book detail view', () => {
       notes: 'Some notes about this book'
     });
     cy.visit('/');
+    cy.waitForApp();
+    cy.get('.card').should('have.length', 1);
   });
 
   it('opens detail view when clicking a book card', () => {
@@ -45,8 +46,9 @@ describe('Book detail view', () => {
   it('deletes a book from detail view', () => {
     cy.on('window:confirm', () => true);
     cy.contains('.card', 'Detail Test Book').click();
+    cy.get('#detail').should('be.visible');
     cy.get('#detailDeleteBtn').click();
     cy.get('#detail').should('not.be.visible');
-    cy.contains('Detail Test Book').should('not.exist');
+    cy.get('.card').should('have.length', 0);
   });
 });

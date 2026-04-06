@@ -1,6 +1,5 @@
 describe('Multi-select operations', () => {
   before(() => {
-    // Clear and seed
     cy.request('POST', '/api/clear');
     cy.request('PUT', '/api/settings', { autoFetchMetadata: false });
     cy.request('POST', '/api/books', { title: 'Select A', authors: ['A'], location: 'shelf-1' });
@@ -10,6 +9,7 @@ describe('Multi-select operations', () => {
 
   beforeEach(() => {
     cy.visit('/');
+    cy.waitForApp();
   });
 
   it('shows checkboxes on cards', () => {
@@ -36,7 +36,6 @@ describe('Multi-select operations', () => {
     cy.get('#selectionCount').should('contain', '2 selected');
     cy.on('window:confirm', () => true);
     cy.get('#selDelete').click();
-    // Should have 1 book left
     cy.get('.card').should('have.length', 1);
     cy.get('#selectionBar').should('not.be.visible');
   });
@@ -50,7 +49,6 @@ describe('Multi-select operations', () => {
     cy.get('#view').select('table');
     cy.get('.select-all').click();
     cy.get('#selectionBar').should('be.visible');
-    // Clear for cleanup
     cy.get('#selClear').click();
   });
 });

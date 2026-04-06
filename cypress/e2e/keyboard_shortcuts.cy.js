@@ -9,6 +9,7 @@ describe('Keyboard shortcuts', () => {
 
   beforeEach(() => {
     cy.visit('/');
+    cy.waitForApp();
     cy.get('.card').should('have.length.at.least', 3);
   });
 
@@ -16,7 +17,6 @@ describe('Keyboard shortcuts', () => {
     cy.get('body').type('n');
     cy.get('#modal').should('be.visible');
     cy.get('#modal-title').should('contain', 'Add Book');
-    // Close it
     cy.get('body').type('{esc}');
     cy.get('#modal').should('not.be.visible');
   });
@@ -39,7 +39,6 @@ describe('Keyboard shortcuts', () => {
     cy.get('body').type('{ctrl}a');
     cy.get('#selectionBar').should('be.visible');
     cy.get('#selectionCount').should('contain', '3 selected');
-    // Clean up
     cy.get('body').type('{esc}');
   });
 
@@ -64,7 +63,6 @@ describe('Keyboard shortcuts', () => {
     cy.get('body').type(' ');
     cy.get('#selectionBar').should('be.visible');
     cy.get('#selectionCount').should('contain', '1 selected');
-    // Clean up
     cy.get('body').type('{esc}');
   });
 

@@ -6,6 +6,7 @@ describe('ISBN validation indicator', () => {
 
   beforeEach(() => {
     cy.visit('/');
+    cy.waitForApp();
     cy.get('#addBtn').click();
     cy.get('#modal').should('be.visible');
   });

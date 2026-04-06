@@ -8,6 +8,7 @@ describe('Bulk set location', () => {
 
   it('sets location for selected books', () => {
     cy.visit('/');
+    cy.waitForApp();
     cy.get('.card').should('have.length', 2);
     cy.get('.card-checkbox').eq(0).click();
     cy.get('.card-checkbox').eq(1).click();
@@ -18,7 +19,6 @@ describe('Bulk set location', () => {
     });
     cy.get('#selSetLocation').click();
 
-    // Verify via API
     cy.request('/api/books').then((res) => {
       const books = res.body.books;
       expect(books.every(b => b.location === 'new-shelf')).to.be.true;

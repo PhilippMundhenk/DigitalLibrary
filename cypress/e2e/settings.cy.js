@@ -1,12 +1,12 @@
 describe('Settings', () => {
   before(() => {
     cy.request('POST', '/api/clear');
-    // Reset settings to defaults so auto-fetch is checked
     cy.request('PUT', '/api/settings', { autoFetchMetadata: true, warnDuplicateIsbn: true, customFields: [] });
   });
 
   beforeEach(() => {
     cy.visit('/');
+    cy.waitForApp();
   });
 
   it('opens and closes settings modal', () => {
@@ -24,6 +24,7 @@ describe('Settings', () => {
 
     // Reload and verify
     cy.visit('/');
+    cy.waitForApp();
     cy.get('#settingsBtn').click();
     cy.get('#settAutoFetch').should('not.be.checked');
 
@@ -33,14 +34,13 @@ describe('Settings', () => {
   });
 
   it('clear library removes all books', () => {
-    // Add some books first
     cy.request('POST', '/api/books', { title: 'ClearTest1' });
     cy.request('POST', '/api/books', { title: 'ClearTest2' });
     cy.visit('/');
+    cy.waitForApp();
     cy.get('.card').should('have.length.at.least', 2);
 
     cy.get('#settingsBtn').click();
-    // Confirm both prompts
     cy.on('window:confirm', () => true);
     cy.get('#clearLibraryBtn').click();
     cy.get('#settingsModal').should('not.be.visible');

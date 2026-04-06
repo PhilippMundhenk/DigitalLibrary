@@ -12,6 +12,7 @@ describe('Table view', () => {
 
   beforeEach(() => {
     cy.visit('/');
+    cy.waitForApp();
   });
 
   it('switches to table view', () => {

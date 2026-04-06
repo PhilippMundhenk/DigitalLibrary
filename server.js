@@ -51,19 +51,20 @@ app.use(cors({
 }));
 
 // Rate limiting
+const isTest = () => !!process.env.JEST_WORKER_ID || process.env.NODE_ENV === 'test';
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: () => !!process.env.JEST_WORKER_ID // skip in tests
+  skip: isTest
 });
 const metadataLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: () => !!process.env.JEST_WORKER_ID
+  skip: isTest
 });
 app.use('/api/', apiLimiter);
 

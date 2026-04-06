@@ -6,6 +6,7 @@ describe('Import flow', () => {
 
   beforeEach(() => {
     cy.visit('/');
+    cy.waitForApp();
   });
 
   it('opens import preview when JSON file is selected', () => {
@@ -46,9 +47,7 @@ describe('Import flow', () => {
 
     cy.get('#importPreview').should('be.visible');
     cy.get('#confirmImportBtn').click();
-    // Modal should close after import
     cy.get('#importPreview').should('not.be.visible');
-    // Books should be in the library
     cy.get('.card').should('have.length', 5);
   });
 
@@ -115,7 +114,6 @@ describe('Import flow', () => {
     cy.get('#cancelImportBtn').click();
     cy.get('#importPreview').should('not.be.visible');
 
-    // Nothing should be imported
     cy.request('/api/books').then(res => {
       expect(res.body.books.find(b => b.title === 'Cancel Test')).to.be.undefined;
     });

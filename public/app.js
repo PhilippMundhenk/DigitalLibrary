@@ -339,6 +339,7 @@
   [titleEl, authorsEl].forEach(function (el) { el.addEventListener('input', updateModalPreview); });
 
   // --- ISBN input validation + auto-fetch ---
+  var isbnFixTimeout = null;
   function updateIsbnStatus() {
     var raw = isbnEl.value.trim();
     if (!raw || !isCompleteISBN(raw)) {
@@ -350,26 +351,33 @@
       isbnStatus.textContent = 'Valid ISBN';
       isbnStatus.className = 'isbn-status valid';
     } else {
-      var clean = raw.replace(/[\s\-]/g, '');
-      if (clean.length === 10) {
-        var fixed = fixISBN10CheckDigit(clean);
-        if (fixed && validateISBN10(fixed)) {
-          isbnStatus.textContent = 'Fixed: ' + fixed;
-          isbnStatus.className = 'isbn-status valid';
-          isbnEl.value = fixed;
-          return;
-        }
-      }
       isbnStatus.textContent = 'Invalid checksum';
       isbnStatus.className = 'isbn-status invalid';
+    }
+  }
+  function tryFixIsbn() {
+    var raw = isbnEl.value.trim();
+    var clean = raw.replace(/[\s\-]/g, '');
+    if (clean.length === 10 && !validateISBN10(clean)) {
+      var fixed = fixISBN10CheckDigit(clean);
+      if (fixed && validateISBN10(fixed)) {
+        isbnEl.value = fixed;
+        isbnStatus.textContent = 'Fixed: ' + fixed;
+        isbnStatus.className = 'isbn-status valid';
+      }
     }
   }
 
   isbnEl.addEventListener('input', function () {
     updateModalPreview();
+    if (isbnFixTimeout) clearTimeout(isbnFixTimeout);
     updateIsbnStatus();
-    if (isbnFetchTimeout) clearTimeout(isbnFetchTimeout);
     var raw = isbnEl.value.trim();
+    var clean = raw.replace(/[\s\-]/g, '');
+    if (clean.length === 10 && !validateISBNChecksum(raw)) {
+      isbnFixTimeout = setTimeout(tryFixIsbn, 300);
+    }
+    if (isbnFetchTimeout) clearTimeout(isbnFetchTimeout);
     if (settings.autoFetchMetadata && isCompleteISBN(raw) && validateISBNChecksum(raw) && !titleEl.value.trim()) {
       isbnFetchTimeout = setTimeout(function () { fetchMetaBtn.click(); }, 500);
     }
@@ -1469,4 +1477,7 @@
 
   // initial load
   await refresh();
+
+  // Signal that the app is fully initialized (used by e2e tests)
+  document.getElementById('app').dataset.ready = 'true';
 })();

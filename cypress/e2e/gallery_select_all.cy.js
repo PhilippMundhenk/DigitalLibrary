@@ -9,11 +9,11 @@ describe('Select All in gallery view', () => {
 
   beforeEach(() => {
     cy.visit('/');
+    cy.waitForApp();
     cy.get('.card').should('have.length', 3);
   });
 
   it('Select All button selects all books in gallery', () => {
-    // Select one to show selection bar
     cy.get('.card-checkbox').first().click();
     cy.get('#selectionBar').should('be.visible');
     cy.get('#selAll').click();
@@ -25,7 +25,6 @@ describe('Select All in gallery view', () => {
     cy.get('.card-checkbox').first().click();
     cy.get('#selAll').click();
     cy.get('#selectionCount').should('contain', '3 selected');
-    // Click again to deselect all
     cy.get('#selAll').click();
     cy.get('#selectionBar').should('not.be.visible');
     cy.get('.card.selected').should('have.length', 0);
@@ -37,7 +36,6 @@ describe('Select All in gallery view', () => {
     cy.get('.card-checkbox').first().click();
     cy.get('#selAll').click();
     cy.get('#selectionCount').should('contain', '2 selected');
-    // Clean up
     cy.get('#selClear').click();
     cy.get('#locationFilter').select('');
   });
