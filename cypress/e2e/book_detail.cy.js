@@ -1,5 +1,11 @@
 describe('Book detail view', () => {
+  before(() => {
+    cy.request('POST', '/api/clear');
+    cy.request('PUT', '/api/settings', { autoFetchMetadata: false });
+  });
+
   beforeEach(() => {
+    cy.request('POST', '/api/clear');
     // Create a book via API
     cy.request('POST', '/api/books', {
       title: 'Detail Test Book',
@@ -37,6 +43,7 @@ describe('Book detail view', () => {
   });
 
   it('deletes a book from detail view', () => {
+    cy.on('window:confirm', () => true);
     cy.contains('.card', 'Detail Test Book').click();
     cy.get('#detailDeleteBtn').click();
     cy.get('#detail').should('not.be.visible');

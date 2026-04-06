@@ -1,5 +1,11 @@
 describe('Edit book flow', () => {
+  before(() => {
+    cy.request('POST', '/api/clear');
+    cy.request('PUT', '/api/settings', { autoFetchMetadata: false });
+  });
+
   beforeEach(() => {
+    cy.request('POST', '/api/clear');
     cy.request('POST', '/api/books', {
       title: 'Editable Book',
       authors: ['Original Author'],

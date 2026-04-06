@@ -27,6 +27,7 @@
           <input id="importFile" type="file" accept=".csv,.json,.txt" />
         </label>
         <button id="settingsBtn" class="btn hide-mobile">Settings</button>
+        <button id="changelogBtn" class="btn hide-mobile">Log</button>
       </div>
     </header>
 
@@ -207,6 +208,9 @@
         <h3 id="scannerTitle">Scan Barcode</h3>
         <div id="scanner-area"></div>
         <div id="batchScanStatus" class="batch-scan-status hidden"></div>
+        <div id="batchLocationRow" class="batch-location-row hidden">
+          <label>Location for scanned books: <input id="batchScanLocation" placeholder="e.g. shelf-A1" /></label>
+        </div>
         <div class="modal-actions">
           <label class="setting-row" style="margin-right:auto;">
             <input type="checkbox" id="batchScanToggle" />

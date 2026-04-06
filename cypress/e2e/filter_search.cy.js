@@ -1,5 +1,7 @@
 describe('Filter and search', () => {
   before(() => {
+    cy.request('POST', '/api/clear');
+    cy.request('PUT', '/api/settings', { autoFetchMetadata: false });
     // Create books with different locations
     cy.request('POST', '/api/books', {
       title: 'Kitchen Book',

@@ -1,6 +1,7 @@
 describe('Data storage', () => {
   before(() => {
     cy.request('POST', '/api/clear');
+    cy.request('PUT', '/api/settings', { autoFetchMetadata: false });
   });
 
   it('stores books in per-file storage accessible via API', () => {
@@ -24,8 +25,6 @@ describe('Data storage', () => {
     cy.request('/api/settings').then(res => {
       expect(res.body.autoFetchMetadata).to.eq(false);
     });
-    // Reset
-    cy.request('PUT', '/api/settings', { autoFetchMetadata: true });
   });
 
   it('bulk operations work correctly', () => {

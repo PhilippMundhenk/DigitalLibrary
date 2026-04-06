@@ -2,6 +2,7 @@ describe('Multi-select operations', () => {
   before(() => {
     // Clear and seed
     cy.request('POST', '/api/clear');
+    cy.request('PUT', '/api/settings', { autoFetchMetadata: false });
     cy.request('POST', '/api/books', { title: 'Select A', authors: ['A'], location: 'shelf-1' });
     cy.request('POST', '/api/books', { title: 'Select B', authors: ['B'], location: 'shelf-1' });
     cy.request('POST', '/api/books', { title: 'Select C', authors: ['C'], location: 'shelf-2' });

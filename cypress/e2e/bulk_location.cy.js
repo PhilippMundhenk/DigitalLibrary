@@ -1,6 +1,7 @@
 describe('Bulk set location', () => {
   before(() => {
     cy.request('POST', '/api/clear');
+    cy.request('PUT', '/api/settings', { autoFetchMetadata: false });
     cy.request('POST', '/api/books', { title: 'Bulk Loc 1' });
     cy.request('POST', '/api/books', { title: 'Bulk Loc 2' });
   });

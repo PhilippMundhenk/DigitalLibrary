@@ -1047,7 +1047,14 @@
         for (var bc of barcodes) {
           if (!validateBarcode(bc.rawValue)) continue;
           if (bc.rawValue === lastDetected) { detectCount++; } else { lastDetected = bc.rawValue; detectCount = 1; }
-          if (detectCount >= 2) { onBarcodeDetected(bc.rawValue); return; }
+          if (detectCount >= 2) {
+            onBarcodeDetected(bc.rawValue);
+            if (batchScanToggle && batchScanToggle.checked) {
+              lastDetected = ''; detectCount = 0;
+              scannerAnimFrame = requestAnimationFrame(scanFrame);
+            }
+            return;
+          }
         }
         scannerAnimFrame = requestAnimationFrame(scanFrame);
       }).catch(function () { if (scannerRunning) scannerAnimFrame = requestAnimationFrame(scanFrame); });
@@ -1107,7 +1114,15 @@
             if (!code) continue;
             if (!validateBarcode(code)) continue;
             if (code === lastDetected) { detectCount++; } else { lastDetected = code; detectCount = 1; }
-            if (detectCount >= 2) { onBarcodeDetected(code); scanning = false; return; }
+            if (detectCount >= 2) {
+              onBarcodeDetected(code);
+              scanning = false;
+              if (batchScanToggle && batchScanToggle.checked) {
+                lastDetected = ''; detectCount = 0;
+                if (scannerRunning) scannerAnimFrame = requestAnimationFrame(scanFrame);
+              }
+              return;
+            }
           }
         }
       } catch (e) { /* continue scanning */ }
@@ -1121,12 +1136,23 @@
   var batchScanToggle = document.getElementById('batchScanToggle');
   var batchScanStatus = document.getElementById('batchScanStatus');
   var scannerTitle = document.getElementById('scannerTitle');
+  var batchLocationRow = document.getElementById('batchLocationRow');
+  var batchScanLocation = document.getElementById('batchScanLocation');
   var batchScannedIsbns = new Set();
   var batchScannedItems = [];
+
+  function showScanFeedback(success) {
+    var overlay = document.createElement('div');
+    overlay.className = 'scan-feedback ' + (success ? 'scan-feedback-ok' : 'scan-feedback-err');
+    overlay.textContent = success ? '\u2713' : '\u2717';
+    scannerArea.appendChild(overlay);
+    setTimeout(function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }, 800);
+  }
 
   function onBarcodeDetected(code) {
     if (batchScanToggle && batchScanToggle.checked) {
       // Batch mode: save immediately, keep scanning
+      showScanFeedback(true);
       onBatchBarcodeDetected(code);
     } else {
       // Single mode: open edit modal
@@ -1156,9 +1182,12 @@
       } catch (e) { /* proceed */ }
     }
 
-    // Create book immediately with just ISBN
+    // Create book immediately with just ISBN + optional location
     try {
-      var result = await api.create({ isbn: code });
+      var batchPayload = { isbn: code };
+      var batchLoc = batchScanLocation ? batchScanLocation.value.trim() : '';
+      if (batchLoc) batchPayload.location = batchLoc;
+      var result = await api.create(batchPayload);
       addBatchScanItem(code, 'ok', result.title || 'Saved');
     } catch (e) {
       addBatchScanItem(code, 'err', 'Error: ' + e.message);
@@ -1182,6 +1211,7 @@
 
   batchScanToggle.addEventListener('change', function () {
     scannerTitle.textContent = batchScanToggle.checked ? 'Batch Scan' : 'Scan Barcode';
+    if (batchLocationRow) batchLocationRow.classList.toggle('hidden', !batchScanToggle.checked);
     if (batchScanToggle.checked) {
       batchScannedIsbns.clear();
       batchScannedItems = [];
@@ -1295,6 +1325,8 @@
       changelogLoadMore.classList.toggle('hidden', changelogOffset >= data.total);
     } catch (e) { /* ignore */ }
   });
+  var changelogBtn = document.getElementById('changelogBtn');
+  if (changelogBtn) changelogBtn.addEventListener('click', function () { openChangelog(); });
   if (changelogBtnMobile) changelogBtnMobile.addEventListener('click', function () {
     closeSidebar();
     openChangelog();

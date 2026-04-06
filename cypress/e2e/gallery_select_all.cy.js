@@ -1,6 +1,7 @@
 describe('Select All in gallery view', () => {
   before(() => {
     cy.request('POST', '/api/clear');
+    cy.request('PUT', '/api/settings', { autoFetchMetadata: false });
     cy.request('POST', '/api/books', { title: 'Gallery SA 1', location: 'loc-A' });
     cy.request('POST', '/api/books', { title: 'Gallery SA 2', location: 'loc-A' });
     cy.request('POST', '/api/books', { title: 'Gallery SA 3', location: 'loc-B' });

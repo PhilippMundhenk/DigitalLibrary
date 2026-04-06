@@ -1,4 +1,9 @@
 describe('Add Book flow', () => {
+  before(() => {
+    cy.request('POST', '/api/clear');
+    cy.request('PUT', '/api/settings', { autoFetchMetadata: false });
+  });
+
   it('visits and adds a book', () => {
     cy.visit('/');
     cy.get('#addBtn').click();

@@ -1,6 +1,7 @@
 describe('Keyboard shortcuts', () => {
   before(() => {
     cy.request('POST', '/api/clear');
+    cy.request('PUT', '/api/settings', { autoFetchMetadata: false });
     cy.request('POST', '/api/books', { title: 'KB Book A', authors: ['Author A'], location: 'shelf-1' });
     cy.request('POST', '/api/books', { title: 'KB Book B', authors: ['Author B'], location: 'shelf-2' });
     cy.request('POST', '/api/books', { title: 'KB Book C', authors: ['Author C'], location: 'shelf-1' });

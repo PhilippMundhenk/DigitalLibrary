@@ -1,6 +1,7 @@
 describe('Security', () => {
   before(() => {
     cy.request('POST', '/api/clear');
+    cy.request('PUT', '/api/settings', { autoFetchMetadata: false });
   });
 
   it('API returns security headers', () => {

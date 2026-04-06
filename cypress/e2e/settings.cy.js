@@ -1,6 +1,8 @@
 describe('Settings', () => {
   before(() => {
     cy.request('POST', '/api/clear');
+    // Reset settings to defaults so auto-fetch is checked
+    cy.request('PUT', '/api/settings', { autoFetchMetadata: true, warnDuplicateIsbn: true, customFields: [] });
   });
 
   beforeEach(() => {

@@ -1,4 +1,9 @@
 describe('ISBN validation indicator', () => {
+  before(() => {
+    cy.request('POST', '/api/clear');
+    cy.request('PUT', '/api/settings', { autoFetchMetadata: false });
+  });
+
   beforeEach(() => {
     cy.visit('/');
     cy.get('#addBtn').click();

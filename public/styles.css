@@ -154,6 +154,18 @@ main { padding: 24px; min-height: calc(100vh - 68px); }
 .batch-scan-status .scan-dup { color: #d97706; }
 .batch-scan-status .scan-err { color: #dc2626; }
 
+/* Scan feedback overlay */
+.scan-feedback { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 6rem; font-weight: 700; z-index: 10; pointer-events: none; animation: scanFade 0.8s ease-out forwards; }
+.scan-feedback-ok { color: #16a34a; }
+.scan-feedback-err { color: #dc2626; }
+@keyframes scanFade { 0% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); } }
+#scanner-area { position: relative; }
+
+/* Batch scan location row */
+.batch-location-row { padding: 8px 0; }
+.batch-location-row label { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; }
+.batch-location-row input { padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; flex: 1; }
+
 /* Changelog */
 .changelog-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 .changelog-table th { background: #f8fafc; padding: 8px 12px; text-align: left; border-bottom: 2px solid #e2e8f0; font-size: 0.8rem; }

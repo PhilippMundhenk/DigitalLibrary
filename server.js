@@ -307,7 +307,7 @@ app.post('/api/books', async (req, res) => {
   try {
     const settings = await storage.getSettings();
     const payload = sanitizeBookPayload(req.body, settings.customFields);
-    if (payload.isbn && (!payload.title || !(payload.authors && payload.authors.length))) {
+    if (settings.autoFetchMetadata !== false && payload.isbn && (!payload.title || !(payload.authors && payload.authors.length))) {
       try {
         const meta = await metadata.fetchByISBN(String(payload.isbn), { downloadCover: !payload.cover });
         const safeMeta = sanitizeBookPayload(meta, settings.customFields);
@@ -394,7 +394,7 @@ app.delete('/api/books/:id', async (req, res) => {
 app.get('/api/metadata/:isbn', metadataLimiter, async (req, res) => {
   try {
     const isbn = String(req.params.isbn).replace(/[^0-9Xx\-\s]/g, '').slice(0, 20);
-    if (!isbn) return res.status(400).json({ error: 'Invalid ISBN' });
+    if (!isbn) return res.json({});
     const meta = await metadata.fetchByISBN(isbn, { downloadCover: true });
     res.json(meta);
   } catch (err) {

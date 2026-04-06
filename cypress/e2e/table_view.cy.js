@@ -1,5 +1,7 @@
 describe('Table view', () => {
   before(() => {
+    cy.request('POST', '/api/clear');
+    cy.request('PUT', '/api/settings', { autoFetchMetadata: false });
     cy.request('POST', '/api/books', {
       title: 'Table View Book',
       authors: ['Table Author'],
