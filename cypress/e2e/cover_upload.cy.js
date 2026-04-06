@@ -56,4 +56,33 @@ describe('Cover upload', () => {
     cy.get('#modal').should('be.visible');
     cy.get('#coverStatus').should('contain', 'Cover set');
   });
+
+  it('cover preview has clickable overlay in edit modal', () => {
+    cy.visit('/');
+    cy.waitForApp();
+    cy.get('#addBtn').click();
+    cy.get('#modal').should('be.visible');
+    cy.get('.modal-cover-wrapper').should('exist');
+    cy.get('.modal-cover-wrapper .cover-overlay').should('exist');
+  });
+
+  it('clicking cover preview triggers file input', () => {
+    cy.visit('/');
+    cy.waitForApp();
+    cy.get('#addBtn').click();
+    cy.get('#modal').should('be.visible');
+    // Attach a small PNG via the file input triggered by clicking the cover
+    cy.fixture('test-cover.png', 'base64').then(content => {
+      const blob = Cypress.Blob.base64StringToBlob(content, 'image/png');
+      const file = new File([blob], 'test-cover.png', { type: 'image/png' });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      cy.get('#coverUpload').then(input => {
+        input[0].files = dt.files;
+        input[0].dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    });
+    cy.get('#coverStatus').should('contain', 'Cover uploaded');
+    cy.get('#cancelBtn').click();
+  });
 });

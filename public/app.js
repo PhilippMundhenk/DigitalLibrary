@@ -210,6 +210,7 @@
   var selClear = document.getElementById('selClear');
 
   var modalCoverPreview = document.getElementById('modal-cover-preview');
+  var modalCoverWrapper = document.querySelector('.modal-cover-wrapper');
   var modalPreviewTitle = document.getElementById('modal-preview-title');
   var modalPreviewAuthors = document.getElementById('modal-preview-authors');
   var modalPreviewIsbn = document.getElementById('modal-preview-isbn');
@@ -313,6 +314,9 @@
   }
 
   // --- Cover upload ---
+  if (modalCoverWrapper) {
+    modalCoverWrapper.addEventListener('click', function () { coverUpload.click(); });
+  }
   coverUpload.addEventListener('change', async function () {
     var file = coverUpload.files[0];
     if (!file) return;
