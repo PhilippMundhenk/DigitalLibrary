@@ -68,6 +68,24 @@ describe('Keyboard shortcuts', () => {
     cy.get('body').type('{esc}');
   });
 
+  it('E edits focused book directly', () => {
+    cy.get('body').type('{downarrow}');
+    cy.get('.card.focused').should('have.length', 1);
+    cy.get('body').type('e');
+    cy.get('#modal').should('be.visible');
+    cy.get('#modal-title').should('contain', 'Edit Book');
+    cy.get('#title').should('not.have.value', '');
+    cy.get('body').type('{esc}');
+  });
+
+  it('? opens keyboard shortcuts help', () => {
+    cy.get('body').type('?');
+    cy.get('#helpModal').should('be.visible');
+    cy.get('.shortcuts-table').should('exist');
+    cy.get('body').type('{esc}');
+    cy.get('#helpModal').should('not.be.visible');
+  });
+
   it('shortcuts do not fire when typing in input', () => {
     cy.get('#search').click().type('n');
     cy.get('#modal').should('not.be.visible');

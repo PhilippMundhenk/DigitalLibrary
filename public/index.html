@@ -232,6 +232,34 @@
         </div>
       </div>
     </div>
+
+    <!-- Keyboard shortcuts help modal -->
+    <div id="helpModal" class="modal hidden">
+      <div class="modal-content" style="max-width: 520px;">
+        <h3>Keyboard Shortcuts</h3>
+        <table class="shortcuts-table">
+          <thead><tr><th>Key</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>?</kbd></td><td>Show this help</td></tr>
+            <tr><td><kbd>N</kbd></td><td>Add new book</td></tr>
+            <tr><td><kbd>S</kbd></td><td>Open barcode scanner</td></tr>
+            <tr><td><kbd>/</kbd> or <kbd>F</kbd></td><td>Focus search box</td></tr>
+            <tr><td><kbd>&darr;</kbd> <kbd>&rarr;</kbd> or <kbd>J</kbd></td><td>Navigate to next book</td></tr>
+            <tr><td><kbd>&uarr;</kbd> <kbd>&larr;</kbd> or <kbd>K</kbd></td><td>Navigate to previous book</td></tr>
+            <tr><td><kbd>Enter</kbd></td><td>Open detail view of focused book</td></tr>
+            <tr><td><kbd>E</kbd></td><td>Edit focused book</td></tr>
+            <tr><td><kbd>Space</kbd></td><td>Toggle selection of focused book</td></tr>
+            <tr><td><kbd>Ctrl+A</kbd></td><td>Select all books</td></tr>
+            <tr><td><kbd>Delete</kbd></td><td>Delete selected books</td></tr>
+            <tr><td><kbd>Escape</kbd></td><td>Close modal / clear selection</td></tr>
+            <tr><td><kbd>Ctrl+Enter</kbd></td><td>Save book (in edit/add modal)</td></tr>
+          </tbody>
+        </table>
+        <div class="modal-actions">
+          <button id="helpCloseBtn" class="btn">Close</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Libraries (vendored locally) -->

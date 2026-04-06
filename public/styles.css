@@ -179,6 +179,13 @@ main { padding: 24px; min-height: calc(100vh - 68px); }
 .changelog-table a { color: #2563eb; text-decoration: none; }
 .changelog-table a:hover { text-decoration: underline; }
 
+/* Keyboard shortcuts help */
+.shortcuts-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin: 12px 0; }
+.shortcuts-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #e2e8f0; color: #64748b; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.shortcuts-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
+.shortcuts-table td:first-child { white-space: nowrap; }
+kbd { display: inline-block; padding: 2px 7px; font-size: 0.8rem; font-family: inherit; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 4px; box-shadow: 0 1px 0 #cbd5e1; color: #334155; }
+
 /* Hamburger menu button (hidden on desktop) */
 .menu-toggle { display: none; background: none; border: none; color: #f8fafc; font-size: 1.5rem; cursor: pointer; padding: 4px 8px; line-height: 1; }
 

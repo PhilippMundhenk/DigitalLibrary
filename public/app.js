@@ -1332,6 +1332,11 @@
     openChangelog();
   });
 
+  // --- Help modal ---
+  var helpModal = document.getElementById('helpModal');
+  var helpCloseBtn = document.getElementById('helpCloseBtn');
+  if (helpCloseBtn) helpCloseBtn.addEventListener('click', function () { helpModal.classList.add('hidden'); });
+
   // --- Keyboard shortcuts ---
   function isAnyModalOpen() {
     return !modal.classList.contains('hidden') ||
@@ -1339,7 +1344,8 @@
            !settingsModal.classList.contains('hidden') ||
            !scannerModal.classList.contains('hidden') ||
            !importPreviewModal.classList.contains('hidden') ||
-           !changelogModal.classList.contains('hidden');
+           !changelogModal.classList.contains('hidden') ||
+           !helpModal.classList.contains('hidden');
   }
 
   function highlightFocused(filtered) {
@@ -1365,6 +1371,7 @@
       if (!detailModal.classList.contains('hidden')) { detailModal.classList.add('hidden'); e.preventDefault(); return; }
       if (!settingsModal.classList.contains('hidden')) { settingsCloseBtn.click(); e.preventDefault(); return; }
       if (!changelogModal.classList.contains('hidden')) { changelogModal.classList.add('hidden'); e.preventDefault(); return; }
+      if (!helpModal.classList.contains('hidden')) { helpModal.classList.add('hidden'); e.preventDefault(); return; }
       if (!importPreviewModal.classList.contains('hidden')) { importPreviewModal.classList.add('hidden'); e.preventDefault(); return; }
       if (selectedIds.size > 0) { selectedIds.clear(); updateSelectionBar(); e.preventDefault(); return; }
       // Blur active element
@@ -1430,6 +1437,25 @@
     if (e.key === 'Enter' && focusedIndex >= 0 && focusedIndex < filtered.length) {
       e.preventDefault();
       showDetail(filtered[focusedIndex]);
+      return;
+    }
+
+    // E: edit focused book directly
+    if ((e.key === 'e' || e.key === 'E') && !e.ctrlKey && !e.metaKey && focusedIndex >= 0 && focusedIndex < filtered.length) {
+      e.preventDefault();
+      var bookToEdit = filtered[focusedIndex];
+      api.get(bookToEdit.id).then(function (full) {
+        showModal(full);
+      }).catch(function () {
+        showModal(bookToEdit);
+      });
+      return;
+    }
+
+    // ?: show keyboard shortcuts help
+    if (e.key === '?') {
+      e.preventDefault();
+      helpModal.classList.remove('hidden');
       return;
     }
 
