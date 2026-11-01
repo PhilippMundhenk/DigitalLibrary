@@ -4,7 +4,8 @@
 		{
 			"label": "Run tests in WSL (detectOpenHandles)",
 			"type": "shell",
-			"command": "wsl.exe bash -lc \"cd /mnt/c/Users/pmund/Documents/GitHub/DigitalLibrary; npm test -- --detectOpenHandles\"",
+			"command": "wsl.exe bash -lc \"npm test -- --detectOpenHandles\"",
+			"options": { "cwd": "${workspaceFolder}" },
 			"isBackground": false,
 			"group": "test"
 		}
